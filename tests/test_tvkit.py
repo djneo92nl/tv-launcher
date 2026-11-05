@@ -122,6 +122,30 @@ class ConfigTests(unittest.TestCase):
         with mock.patch.object(config.sys, "platform", "linux"), mock.patch.dict(os.environ, {}, clear=True):
             self.assertIn(config.auto_profile(), ("pi", "desktop"))
 
+    def test_a_pi_picks_hdmi_when_a_display_is_connected_and_composite_otherwise(self):
+        import unittest.mock as mock
+        with tempfile.TemporaryDirectory() as d:
+            for name, status in (("card0", None), ("card0-HDMI-A-1", "connected"), ("card0-Composite-1", "connected")):
+                os.makedirs(os.path.join(d, name))
+                if status:
+                    open(os.path.join(d, name, "status"), "w").write(status + "\n")
+            self.assertTrue(config.hdmi_connected(d))
+            open(os.path.join(d, "card0-HDMI-A-1", "status"), "w").write("disconnected\n")
+            self.assertFalse(config.hdmi_connected(d))                      # composite does not count
+            self.assertFalse(config.hdmi_connected(os.path.join(d, "nope")))
+            real_open = open
+
+            def fake_open(path, *args, **kw):                              # pretend this machine is a Raspberry Pi
+                if str(path) == "/proc/device-tree/model":
+                    return __import__("io").BytesIO(b"Raspberry Pi 2 Model B Rev 1.1\0")
+                return real_open(path, *args, **kw)
+            with mock.patch.object(config.sys, "platform", "linux"), mock.patch.dict(os.environ, {}, clear=True), mock.patch("builtins.open", fake_open):
+                self.assertEqual(config.auto_profile(d), "pi")
+                open(os.path.join(d, "card0-HDMI-A-1", "status"), "w").write("connected\n")
+                self.assertEqual(config.auto_profile(d), "hdmi")
+            with mock.patch.object(config.sys, "platform", "linux"), mock.patch.dict(os.environ, {"DISPLAY": ":0"}):
+                self.assertEqual(config.auto_profile(d), "desktop")         # a desktop session wins over everything else
+
     def test_default_profile_is_automatic_and_a_name_still_wins(self):
         self.assertIn(config.load()["profile"], ("mac", "desktop", "pi"))
         self.assertEqual(config.load(profile="hdmi")["profile"], "hdmi")

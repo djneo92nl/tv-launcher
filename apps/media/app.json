@@ -1,0 +1,16 @@
+{
+  "id": "media",
+  "name": "MEDIA",
+  "version": "1.0.0",
+  "description": "Videos and music from USB sticks and shares",
+  "icon": "folder",
+  "tvkit": 1,
+  "order": 20,
+  "permissions": [
+    {
+      "kind": "files",
+      "detail": "your media folders and USB sticks"
+    }
+  ],
+  "author": "TV Launcher"
+}

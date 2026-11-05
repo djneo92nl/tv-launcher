@@ -6,6 +6,12 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+_SANDBOX = tempfile.mkdtemp(prefix="tvl-test-")           # tests never touch the real settings, devices or installed apps
+os.environ["TVL_SETTINGS"] = os.path.join(_SANDBOX, "settings.json")
+os.environ["TVL_USER_APPS"] = os.path.join(_SANDBOX, "apps")
+os.environ["TVL_STATE_DIR"] = os.path.join(_SANDBOX, "state")
+os.environ["TVL_DEVICES"] = os.path.join(_SANDBOX, "devices.json")
+os.environ["TVL_DATA_DIR"] = os.path.join(_SANDBOX, "data")
 
 
 def load_app(name):
@@ -16,6 +22,11 @@ def load_app(name):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def reset_settings():
+    """Point the settings overlay at a fresh, empty file: tests that save settings must not leak them into the next test."""
+    os.environ["TVL_SETTINGS"] = os.path.join(tempfile.mkdtemp(prefix="tvl-settings-"), "settings.json")
 
 
 class FakeMpv:

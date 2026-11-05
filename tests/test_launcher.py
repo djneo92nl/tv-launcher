@@ -107,7 +107,7 @@ class EntryTests(unittest.TestCase):
             self.assertIsNone(launcher.load_launcher_config(d + "/missing.json")["autostart"])
 
     def test_every_default_app_has_an_icon_that_exists(self):
-        for e in launcher.DEFAULT_CONFIG["apps"] + launcher.DEFAULT_CONFIG["system"]:
+        for e in launcher.all_apps(launcher.DEFAULT_CONFIG) + launcher.DEFAULT_CONFIG["system"]:
             self.assertIn(e["icon"], ui.ICONS, e["id"])
 
     def test_profile_placeholder(self):

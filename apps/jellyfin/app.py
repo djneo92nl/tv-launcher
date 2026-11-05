@@ -495,6 +495,15 @@ class Jellyfin(Shell):
                 self.refresh_detail()
                 self.note = f"Could not play {title}"
 
+    def status(self):
+        st = super().status()
+        cur = self.cur
+        st["screen"] = "PLAYING" if self.playing else (cur.title if cur else "CONNECTING")
+        if self.playing:
+            e, ps = self.playing["entry"], self.pb.status() or {}
+            st["playing"] = {"title": e["title"], "artist": e.get("sub", ""), "pos": ps.get("pos"), "dur": ps.get("dur") or e.get("runtime"), "paused": ps.get("paused", False)}
+        return st
+
     def tick(self, now):
         if self.pb.mpv is not self.mpv and self.mpv:
             self.pb.rebind(self.mpv)

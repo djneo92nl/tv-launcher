@@ -1,0 +1,16 @@
+{
+  "id": "news",
+  "name": "NEWS",
+  "version": "1.0.0",
+  "description": "Headlines from your RSS feeds",
+  "icon": "news",
+  "tvkit": 1,
+  "order": 60,
+  "permissions": [
+    {
+      "kind": "network",
+      "detail": "the news feeds you add"
+    }
+  ],
+  "author": "TV Launcher"
+}

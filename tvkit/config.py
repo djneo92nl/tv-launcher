@@ -3,6 +3,8 @@ import json
 import os
 import sys
 
+from . import settings
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -30,6 +32,7 @@ def load(path=None, profile=None):
     The profile is, in order: the argument, $TVL_PROFILE, "profile" in config.json, and with "auto" (the default) the machine's own (auto_profile)."""
     with open(path or default_path()) as f:
         cfg = json.load(f)
+    settings.apply_overlay(cfg)                       # what the web page saved (~/.config/tv-launcher/settings.json) wins over config.json
     cfg["profile"] = profile or os.environ.get("TVL_PROFILE") or cfg.get("profile", "auto")
     if cfg["profile"] == "auto":
         cfg["profile"] = auto_profile()

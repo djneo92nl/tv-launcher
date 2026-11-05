@@ -86,6 +86,13 @@ class Photos(Shell):
         elif ev.get("event") == "file-loaded":
             self.failures = 0
 
+    def status(self):
+        st = super().status()
+        st["screen"] = "PHOTOS"
+        if self.files and 0 <= self.i < len(self.files):
+            st["playing"] = {"title": os.path.basename(self.files[self.i]), "artist": f"{self.i + 1} of {len(self.files)}", "pos": None, "dur": None, "paused": not self.playing}
+        return st
+
     def tick(self, now):
         if self.files and self.playing and now - self.last >= self.seconds:
             self.go(1)

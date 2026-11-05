@@ -1,0 +1,16 @@
+{
+  "id": "info",
+  "name": "THIS PI",
+  "version": "1.0.0",
+  "description": "Address, temperature, memory, disk",
+  "icon": "info",
+  "tvkit": 1,
+  "order": 70,
+  "permissions": [
+    {
+      "kind": "exec",
+      "detail": "vcgencmd (Raspberry Pi only)"
+    }
+  ],
+  "author": "TV Launcher"
+}

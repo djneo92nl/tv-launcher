@@ -103,6 +103,11 @@ class News(Shell):
             out.append(ui.text(ui.SX, ui.H - ui.SY - 28, ui.esc(e["link"])[:70], 14, ui.DIM, bold=False, border=0))
         return "\n".join(out + ui.footer("UP/DOWN scroll   ESC back   Q leave"))
 
+    def status(self):
+        st = super().status()
+        st["screen"] = {"feeds": "NEWS", "list": self.feeds[self.cur]["name"] if self.feeds else "NEWS", "story": (self.story or {}).get("title", "STORY"), "empty": "NEWS"}[self.screen]
+        return st
+
     def _count(self, i):
         d = self.data.get(i)
         return "loading..." if d is None else "could not load" if d == "error" else f"{len(d)} stories"

@@ -1,0 +1,11 @@
+{
+  "id": "clock",
+  "name": "CLOCK",
+  "version": "1.0.0",
+  "description": "A big clock and the date",
+  "icon": "clock",
+  "tvkit": 1,
+  "order": 10,
+  "permissions": [],
+  "author": "TV Launcher"
+}

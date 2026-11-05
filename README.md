@@ -58,6 +58,13 @@ Log: `~/.cache/tv-launcher/launcher.log`, and one log per app next to it.
 **Untested on a real Pi.** The menu, the start / return cycle and every app ran on a Mac; the Pi profiles are copied from the TV Tuner repo, where they are
 also marked as untested for some boards.
 
+## Web interface (phone remote, settings)
+
+Open **REMOTE** on the TV, then the address and 6-digit code it shows on your phone. You get a remote (with a text box that types into the on-screen keyboards), the list of apps (start, hide),
+a settings page, and Restart / Shut down. Changes are saved to `~/.config/tv-launcher/settings.json`, merged over `config.json`. Restart and shut down ask for OK on the TV first.
+Security model, API and limits (no TLS): [docs/WEB.md](docs/WEB.md). Apps get a small control socket for free (`tvkit/control.py`) and can report what they show by overriding `Shell.status()`.
+Each app also has an `app.json` manifest (`tvkit/manifest.py`); the launcher discovers built-in apps and, later, installed ones from it.
+
 ## Writing an app
 
 See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and `draw`, about 40 lines for the template.
@@ -70,7 +77,9 @@ See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and 
 | `tvkit/shell.py` | the part every app shares: mpv, inputs, resize, crash restart, the loop |
 | `tvkit/ui.py` | the flat IPTV look as drawing functions, list view, icon grid |
 | `tvkit/player.py` | playback for apps: resume positions, seek / pause / subtitles keys, the position bar |
-| `tvkit/net.py`, `tvkit/images.py`, `tvkit/config.py` | HTTP, BMP pictures, config |
+| `tvkit/web.py`, `tvkit/webpage.py` | the web interface: pairing, auth, API, the page |
+| `tvkit/control.py`, `tvkit/settings.py`, `tvkit/manifest.py` | the per-app control socket, settings schema and overlay, app manifests |
+| `tvkit/net.py`, `tvkit/images.py`, `tvkit/config.py` | HTTP, BMP and PNG pictures, config |
 | `tvkit/mpvctl.py`, `tvkit/inputs.py` | vendored from the TV Tuner repo (keyboard, USB / evdev, CEC, mpv JSON IPC) |
 | `apps/` | the apps, and `_template` |
 | `tools/fake_remoment.py`, `tools/fake_jellyfin.py` | pretend ReMoment and Jellyfin servers for tests and demos |

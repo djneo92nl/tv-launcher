@@ -163,6 +163,12 @@ class Playback:
         if self.active and now - self.last_save >= SAVE_EVERY_S:
             self.save()
 
+    def status(self):
+        """For Shell.status(): what is playing, or None."""
+        if not self.active:
+            return None
+        return {"title": self.title, "pos": self.pos, "dur": self.dur, "paused": self.paused}
+
     # ---- drawing ----
     def osd(self, now):
         if not self.active:

@@ -1,0 +1,16 @@
+{
+  "id": "remoment",
+  "name": "REMOMENT",
+  "version": "1.0.0",
+  "description": "Your ReMoment music library, with covers",
+  "icon": "music",
+  "tvkit": 1,
+  "order": 40,
+  "permissions": [
+    {
+      "kind": "network",
+      "detail": "your ReMoment server"
+    }
+  ],
+  "author": "TV Launcher"
+}

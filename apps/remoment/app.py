@@ -369,6 +369,16 @@ class ReMoment(Shell):
             else:
                 self.now_open = False
 
+    def status(self):
+        st = super().status()
+        cur = self.cur
+        st["screen"] = "NOW PLAYING" if self.now_open else (cur.title if cur else "CONNECTING")
+        t = self.now_track()
+        if t:
+            ps = self.pb.status() or {}
+            st["playing"] = {"title": t["title"], "artist": t["artist"], "album": t["album"], "pos": ps.get("pos"), "dur": ps.get("dur"), "paused": ps.get("paused", False)}
+        return st
+
     def tick(self, now):
         if self.pb.mpv is not self.mpv and self.mpv:
             self.pb.rebind(self.mpv)

@@ -180,6 +180,12 @@ class Media(Shell):
             self.note = "Could not play " + self.queue[self.queue_i]["name"]
             self.open(self.folder, select=self.queue[self.queue_i]["path"])
 
+    def status(self):
+        st = super().status()
+        st["screen"] = (os.path.basename(self.folder) if self.folder else "MEDIA") if not self.pb.active else "PLAYING"
+        st["playing"] = self.pb.status()
+        return st
+
     def tick(self, now):
         if self.pb.mpv is not self.mpv and self.mpv:               # mpv was restarted after a crash: playback is gone
             self.pb.rebind(self.mpv)

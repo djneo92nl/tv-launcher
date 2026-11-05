@@ -110,6 +110,11 @@ class Info(Shell):
     def start(self):
         self.rows, self.at = gather(), 0
 
+    def status(self):
+        st = super().status()
+        st["screen"] = "THIS DEVICE"
+        return st
+
     def tick(self, now):
         if now - self.at > 2:
             self.rows, self.at = gather(), now

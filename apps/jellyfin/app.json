@@ -1,0 +1,16 @@
+{
+  "id": "jellyfin",
+  "name": "JELLYFIN",
+  "version": "1.0.0",
+  "description": "Movies and shows from your Jellyfin server",
+  "icon": "stream",
+  "tvkit": 1,
+  "order": 30,
+  "permissions": [
+    {
+      "kind": "network",
+      "detail": "your Jellyfin server"
+    }
+  ],
+  "author": "TV Launcher"
+}

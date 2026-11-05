@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-from . import config, inputs, ui
+from . import config, control, inputs, ui
 from .mpvctl import Mpv
 
 log = logging.getLogger("tvkit")
@@ -67,6 +67,24 @@ class Shell:
     def quit(self, code=0):
         self.stopping = True
         self.exit_code = code
+
+    def status(self):
+        """What the web interface shows about this app. Apps override it (and call super()) to add what they are showing or playing.
+        Called from another thread: build the dict from plain values and do not touch mpv."""
+        return {"app": self.app_id, "screen": "", "playing": None, "text_input": bool(inputs.TEXT_MODE)}
+
+    @property
+    def app_id(self):
+        """The id the launcher started this app under (TVL_APP_ID), else the class name. Used for the control socket and the data folder."""
+        return os.environ.get("TVL_APP_ID") or self.name
+
+    @property
+    def data_dir(self):
+        """A private folder for this app's own files; it survives updates. Created on first use."""
+        base = os.environ.get("TVL_DATA_DIR") or os.path.expanduser("~/.local/share/tv-launcher/data")
+        d = os.path.join(base, self.app_id)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        return d
 
     # ---- the screen ----
     def open_screen(self):
@@ -133,6 +151,8 @@ class Shell:
         except queue.Empty:
             return None
         if kind == "cmd":
+            return kind, val
+        if kind == "app":                                   # an event an app (or the launcher) put on the queue itself: handed through untouched
             return kind, val
         if kind == "call":                                  # work handed back from a background thread, see later()
             try:
@@ -201,11 +221,17 @@ class Shell:
         signal.signal(signal.SIGTERM, lambda *_: self.quit())
         signal.signal(signal.SIGINT, lambda *_: self.quit())
         self.open_screen()
+        self.control = control.ControlServer(self, self.app_id)
+        try:
+            self.control.start()
+        except OSError:
+            log.exception("could not open the control socket: the web remote cannot reach this app")
         try:
             self.start()
             while self.step():
                 pass
         finally:
+            self.control.stop()
             self.close_screen()
         return self.exit_code
 

@@ -27,6 +27,12 @@ if __name__ == "__main__":
 `self.mpv` is the `Mpv` controller (`play(url)`, `command(...)`, `get(prop)`); `self.cfg` is config.json plus `cfg["args"]`.
 Add the app to `launcher.json`: `{"id": "my-app", "name": "MY APP", "desc": "...", "icon": "app", "dir": "apps/my-app", "cmd": ["python3", "app.py", "--profile", "{profile}"]}`.
 
+## Manifest, status and data
+
+Every app folder has an `app.json` (`id`, `name`, `version`, `description`, `icon`, `tvkit`, `order`, `permissions`; see `tvkit/manifest.py`); without a valid one the launcher skips the folder.
+Override `Shell.status()` (call `super().status()` and fill `screen` and `playing`) so the phone shows what the app is doing. `self.data_dir` is a private folder for the app's own files.
+The launcher starts the app with `TVL_APP_ID` set, which names its control socket and data folder.
+
 ## Drawing (`tvkit/ui.py`)
 
 The IPTV look: `background()`, `header(title)`, `footer(hint, note)`, `ListView` + `list_rows(...)` for long lists, `tile_grid` for icon grids,

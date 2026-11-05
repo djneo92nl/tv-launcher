@@ -33,6 +33,11 @@ class Clock(Shell):
         else:
             super().handle(cmd)
 
+    def status(self):
+        st = super().status()
+        st["screen"] = datetime.datetime.now().strftime("%H:%M" if self.h24 else "%I:%M %p").lstrip("0")
+        return st
+
     def draw(self, now):
         t = datetime.datetime.fromtimestamp(now)
         big, date = face(t, self.h24, self.seconds)

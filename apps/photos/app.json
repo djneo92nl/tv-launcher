@@ -1,0 +1,16 @@
+{
+  "id": "photos",
+  "name": "PHOTOS",
+  "version": "1.0.0",
+  "description": "Slideshow of a folder or a USB stick",
+  "icon": "photos",
+  "tvkit": 1,
+  "order": 50,
+  "permissions": [
+    {
+      "kind": "files",
+      "detail": "your photo folders"
+    }
+  ],
+  "author": "TV Launcher"
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=TV Launcher (home menu and apps)
+After=network-online.target
+Wants=network-online.target
+Conflicts=spelunkr-tv.service
+
+[Service]
+User=pi
+Group=pi
+SupplementaryGroups=video audio input render tty
+WorkingDirectory=/opt/tv-launcher
+ExecStart=/usr/bin/python3 /opt/tv-launcher/launcher.py --profile pi
+# Run on the console so a USB keyboard controls it
+StandardInput=tty-force
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=5
+# the apps it starts are children: stopping the service must stop them too
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

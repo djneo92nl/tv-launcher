@@ -158,6 +158,8 @@ class Shell:
                     return "resize", None
             return None
         if name == "mpv-exited" and not self.stopping:
+            if ev.get("code") == 0:                          # the window was closed (or q pressed in it): that is a quit, not a crash
+                return "closed", None
             return ("dead", None) if not self.revive() else ("resize", None)
         return "mpv", ev
 
@@ -178,6 +180,9 @@ class Shell:
                 self.handle(ev[1])
             elif ev and ev[0] == "mpv":
                 self.on_mpv(ev[1])
+            elif ev and ev[0] == "closed":
+                self.quit(0)
+                return False
             elif ev and ev[0] == "dead":
                 self.quit(1)
                 return False

@@ -65,6 +65,29 @@ class EntryTests(unittest.TestCase):
                             {"id": "noscript", "name": "NOSCRIPT", "dir": d, "cmd": ["python3", "other.py"]}], "system": []}
             self.assertEqual([e["id"] for e in launcher.build_entries(cfg)], ["here"])
 
+    def test_dir_can_list_places_and_the_first_that_exists_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "second"))
+            open(os.path.join(d, "second", "tv.py"), "w").close()
+            app = {"id": "x", "name": "X", "cmd": ["python3", "tv.py"], "dir": [os.path.join(d, "first"), os.path.join(d, "second")]}
+            self.assertEqual(launcher.app_dir(app), os.path.join(d, "second"))
+            self.assertTrue(launcher.app_available(app))
+            app["dir"] = [os.path.join(d, "nowhere")]
+            self.assertFalse(launcher.app_available(app))
+
+    def test_relative_dirs_are_also_looked_up_in_search_dirs(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Sibling Tv App"))
+            open(os.path.join(d, "Sibling Tv App", "tv.py"), "w").close()
+            app = {"id": "x", "name": "X", "cmd": ["python3", "tv.py"], "dir": ["../Sibling Tv App"]}
+            old = list(launcher.SEARCH_DIRS)
+            try:
+                launcher.SEARCH_DIRS[:] = [d]
+                self.assertEqual(launcher.app_dir(app), os.path.join(d, "Sibling Tv App"))
+                self.assertTrue(launcher.app_available(app))
+            finally:
+                launcher.SEARCH_DIRS[:] = old
+
     def test_relative_dirs_are_inside_the_repo(self):
         e = launcher.build_entries({"apps": [{"id": "c", "name": "C", "dir": "apps/clock", "cmd": ["python3", "app.py"]}], "system": []})
         self.assertEqual([x["id"] for x in e], ["c"])
@@ -104,6 +127,18 @@ class DrawTests(unittest.TestCase):
             self.assertIn("SURE?", launcher.home_screen(m, 1_800_000_000_000))
         finally:
             ui.set_canvas(old)
+
+
+class CloseTests(unittest.TestCase):
+    def test_closing_the_menu_window_ends_the_launcher(self):
+        e = {"id": "a", "name": "A", "kind": "app", "cmd": ["x"]}
+        L = launcher.Launcher({"prof": {}, "cache_dir": "/tmp", "profile": "mac"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
+        L.open_screen = lambda: None
+        L.close_screen = lambda: None
+        L.mpv = support.FakeMpv()
+        L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 0})))
+        self.assertIsNone(L.menu_loop())
+        self.assertTrue(L.stopping)                                  # run() then stops instead of drawing the menu again
 
 
 class RunTests(unittest.TestCase):

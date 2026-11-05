@@ -22,6 +22,28 @@ python3 apps/clock/app.py            # or run one app by itself
 python3 -m unittest discover -s tests
 ```
 
+## As a desktop app
+
+**Mac** (`brew install mpv` first):
+
+```bash
+sh mac/make_app.sh            # builds dist/TV Launcher.app, with an icon
+open "dist/TV Launcher.app"   # log: ~/Library/Logs/tv-launcher.log
+```
+
+**Linux desktop** (X11 or Wayland; `sudo apt install mpv python3`):
+
+```bash
+sh desktop/install.sh              # adds "TV Launcher" to your application menu (copies to ~/.local/share/tv-launcher)
+sh desktop/install.sh --uninstall
+```
+
+The profile is chosen for the machine (`mac`, `desktop`, or `pi` on a Pi without a desktop; override with `--profile` or `"profile"` in `config.json`).
+Spelunkr TV and IPTV are found in `/opt`, in `~/spelunkr-tv` / `~/spelunkr-iptv`, or in folders next to this repo (`TV Tuner`, `TV Tuner IPTV`); the packaged copies
+remember where this repo's neighbours are (`search_dirs` in `launcher.json`). Closing the window quits the launcher; if mpv crashes, it is restarted.
+The Linux desktop entry is **untested on real Linux hardware** (the installer ran in a throwaway home folder on the Mac, and the Mac app was launched and closed).
+Re-run the build or the installer after changing code: the packaged copy is a copy (your `config.json` is kept on Linux).
+
 ## On a Pi
 
 ```bash
@@ -53,3 +75,4 @@ See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and 
 | `apps/` | the apps, and `_template` |
 | `tools/fake_remoment.py`, `tools/fake_jellyfin.py` | pretend ReMoment and Jellyfin servers for tests and demos |
 | `pi/` | `setup.sh` and the systemd unit |
+| `mac/`, `desktop/` | the Mac app builder, the Linux desktop entry installer, and the icon drawing |

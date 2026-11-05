@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
     "autostart_seconds": 6,
     "remember_last": True,                  # the menu opens on the app you used last
     "crash_seconds": 10,                    # an app that fails within this time is reported on the menu
+    "search_dirs": [],                      # extra folders to look in for apps given as a relative "dir" (the packaged apps use it)
     "apps": [
         {"id": "clock", "name": "CLOCK", "desc": "A big clock", "icon": "clock", "dir": "apps/clock", "cmd": ["python3", "app.py", "--profile", "{profile}"]},
         {"id": "media", "name": "MEDIA", "desc": "Videos and music from USB sticks and shares", "icon": "folder", "dir": "apps/media",
@@ -43,9 +44,9 @@ DEFAULT_CONFIG = {
         {"id": "news", "name": "NEWS", "desc": "Headlines from your RSS feeds", "icon": "news", "dir": "apps/news", "cmd": ["python3", "app.py", "--profile", "{profile}"]},
         {"id": "info", "name": "THIS PI", "desc": "Address, temperature, memory, disk", "icon": "info", "dir": "apps/info", "cmd": ["python3", "app.py", "--profile", "{profile}"]},
         {"id": "spelunkr", "name": "SPELUNKR TV", "desc": "Cable TV from the Internet Archive", "icon": "tv",
-         "dir": "/opt/spelunkr-tv", "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
+         "dir": ["/opt/spelunkr-tv", "~/spelunkr-tv", "../TV Tuner", "../spelunkr-tv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
         {"id": "iptv", "name": "IPTV", "desc": "Live channels from your own subscription", "icon": "stream",
-         "dir": "/opt/spelunkr-iptv", "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
+         "dir": ["/opt/spelunkr-iptv", "~/spelunkr-iptv", "../TV Tuner IPTV", "../spelunkr-iptv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
     ],
     "system": [
         {"id": "reboot", "name": "RESTART", "desc": "Reboot the Pi", "icon": "restart", "cmd": ["sudo", "-n", "systemctl", "reboot"], "confirm": True},
@@ -69,9 +70,24 @@ def load_launcher_config(path):
     return cfg
 
 
+SEARCH_DIRS = []                            # set from launcher.json by main()
+
+
+def candidates(d):
+    """Folders a `dir` entry can mean: absolute and ~ paths as they are; relative ones inside this repo and inside each search dir."""
+    d = os.path.expanduser(d)
+    if os.path.isabs(d):
+        return [d]
+    return [os.path.normpath(os.path.join(ROOT, d))] + [os.path.normpath(os.path.join(base, os.path.basename(d.rstrip("/")))) for base in SEARCH_DIRS]
+
+
 def app_dir(app):
+    """The folder of an app: `dir` is one path or a list of places to look, the first that exists wins (else the first, so errors name it)."""
     d = app.get("dir")
-    return os.path.join(ROOT, os.path.expanduser(d)) if d else None       # relative folders are inside this repo
+    if not d:
+        return None
+    options = [c for entry in ([d] if isinstance(d, str) else d) for c in candidates(entry)]
+    return next((c for c in options if os.path.isdir(c)), options[0])
 
 
 def app_available(app):
@@ -223,7 +239,9 @@ class Launcher(Shell):
                     chosen = menu.handle(ev[1])
                     if chosen:
                         return chosen
-                elif ev and ev[0] == "dead":
+                elif ev and ev[0] in ("dead", "closed"):          # a closed window quits the launcher; a crash gave up restarting
+                    if ev[0] == "closed":
+                        self.stopping = True
                     return None
                 countdown = None
                 if deadline is not None:
@@ -312,6 +330,7 @@ def main(argv=None):
     lcfg = load_launcher_config(a.launcher_config)
     if a.no_autostart:
         lcfg["autostart"] = None
+    SEARCH_DIRS[:] = [os.path.expanduser(x) for x in lcfg.get("search_dirs", [])]
     entries = build_entries(lcfg)
     if a.list:
         for i, e in enumerate(entries, 1):

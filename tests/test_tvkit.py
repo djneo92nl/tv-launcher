@@ -113,6 +113,19 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(os.path.isabs(cfg["cache_dir"]))
         self.assertIn("mpv", cfg["prof"])
 
+    def test_auto_profile_follows_the_machine(self):
+        import unittest.mock as mock
+        with mock.patch.object(config.sys, "platform", "darwin"):
+            self.assertEqual(config.auto_profile(), "mac")
+        with mock.patch.object(config.sys, "platform", "linux"), mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
+            self.assertEqual(config.auto_profile(), "desktop")
+        with mock.patch.object(config.sys, "platform", "linux"), mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIn(config.auto_profile(), ("pi", "desktop"))
+
+    def test_default_profile_is_automatic_and_a_name_still_wins(self):
+        self.assertIn(config.load()["profile"], ("mac", "desktop", "pi"))
+        self.assertEqual(config.load(profile="hdmi")["profile"], "hdmi")
+
     def test_unknown_profile_is_an_error(self):
         with self.assertRaises(SystemExit):
             config.load(profile="nope")
@@ -147,6 +160,23 @@ class ShellTests(unittest.TestCase):
         press(s, "volup", "mute")
         self.assertIn(("add", "volume", 5), s.mpv.commands)
         self.assertIn(("cycle", "mute"), s.mpv.commands)
+
+    def test_closing_the_window_quits_but_a_crash_restarts(self):
+        s = fake_shell(Shell)
+        s.revive = lambda: True                                   # stands in for starting a new mpv
+        s.q.put(("mpv", (s.mpv, {"event": "mpv-exited", "code": 0})))
+        self.assertFalse(s.step(0))
+        self.assertEqual(s.exit_code, 0)
+        s2 = fake_shell(Shell)
+        s2.revive = lambda: True
+        s2.q.put(("mpv", (s2.mpv, {"event": "mpv-exited", "code": 11})))
+        self.assertTrue(s2.step(0))                               # a segfault: carry on with a new mpv
+        self.assertFalse(s2.stopping)
+        s3 = fake_shell(Shell)
+        s3.revive = lambda: False                                 # restarting keeps failing: give up with an error code
+        s3.q.put(("mpv", (s3.mpv, {"event": "mpv-exited", "code": 11})))
+        self.assertFalse(s3.step(0))
+        self.assertEqual(s3.exit_code, 1)
 
     def test_an_error_in_the_app_does_not_stop_the_loop(self):
         class Bad(Shell):

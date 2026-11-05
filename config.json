@@ -1,5 +1,5 @@
 {
-  "profile": "mac",
+  "profile": "auto",
   "cache_dir": "~/.cache/tv-launcher",
   "evdev": true,
   "cec": {

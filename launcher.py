@@ -292,6 +292,7 @@ class Launcher(Shell):
         self.pending = None                     # an app id someone (the web interface) asked to start next
         self.menu = None
         self.lock = threading.Lock()
+        self.mpv_failed = False                 # mpv kept dying and we gave up: exit with an error so systemd (and you) can tell
         self.web, self.web_error = None, None
         self.pairing, self.confirms = webmod.Pairing(), webmod.Confirmations()
         self.catalog, self.reload_flag = [], False
@@ -485,6 +486,9 @@ class Launcher(Shell):
                 elif ev and ev[0] in ("dead", "closed"):          # a closed window quits the launcher; a crash gave up restarting
                     if ev[0] == "closed":
                         self.stopping = True
+                    else:
+                        self.mpv_failed = True
+                        log.error("giving up: mpv keeps dying (see %s/mpv.err)", self.cfg["cache_dir"])
                     return None
                 countdown = None
                 if deadline is not None:
@@ -598,7 +602,7 @@ class Launcher(Shell):
             note = self.run_app(entry)
             if entry["kind"] == "system" and not note:
                 time.sleep(30)                   # the machine is going down: do not draw the menu again meanwhile
-        return 0
+        return 1 if self.mpv_failed else 0
 
 
 def reserved_ids(lcfg):
@@ -646,7 +650,11 @@ def main(argv=None):
     L.setup_web(bool(web_cfg.get("enabled", True)) and not os.environ.get("TVL_NO_WEB"), int(web_cfg.get("port", 8090)), a.config, a.launcher_config)
     if not L.web:
         L.reload()
-    return L.run(a.run)
+    try:
+        return L.run(a.run)
+    except Exception:
+        log.exception("the launcher crashed")           # into launcher.log, not only the console: nobody is watching a TV box's console
+        return 1
 
 
 if __name__ == "__main__":

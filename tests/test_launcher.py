@@ -141,6 +141,28 @@ class CloseTests(unittest.TestCase):
         self.assertTrue(L.stopping)                                  # run() then stops instead of drawing the menu again
 
 
+class FailureTests(unittest.TestCase):
+    def test_a_launcher_whose_mpv_keeps_dying_exits_with_an_error_not_zero(self):
+        e = {"id": "a", "name": "A", "kind": "app", "cmd": ["x"]}
+        L = launcher.Launcher({"prof": {}, "cache_dir": tempfile.mkdtemp(), "profile": "pi"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
+        L.mpv = support.FakeMpv()
+        L.open_screen = lambda: None
+        L.close_screen = lambda: None
+        L.revive = lambda: False                                      # starting a new mpv keeps failing
+        L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 11})))
+        self.assertEqual(L._run(None, "", True), 1)
+        self.assertTrue(L.mpv_failed)
+
+    def test_a_closed_window_is_still_a_clean_exit(self):
+        e = {"id": "a", "name": "A", "kind": "app", "cmd": ["x"]}
+        L = launcher.Launcher({"prof": {}, "cache_dir": tempfile.mkdtemp(), "profile": "pi"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
+        L.mpv = support.FakeMpv()
+        L.open_screen = lambda: None
+        L.close_screen = lambda: None
+        L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 0})))
+        self.assertEqual(L._run(None, "", True), 0)
+
+
 class RunTests(unittest.TestCase):
     def make(self, tmp, cmd):
         e = {"id": "t", "name": "T", "kind": "app", "cmd": cmd, "dir": tmp}

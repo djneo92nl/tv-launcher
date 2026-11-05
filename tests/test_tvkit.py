@@ -278,6 +278,33 @@ class GridKeyboardTests(unittest.TestCase):
         self.assertEqual(seen, [threading.current_thread().name])
 
 
+class MpvStartupTests(unittest.TestCase):
+    def test_a_start_up_failure_names_the_reason_mpv_gave(self):
+        from tvkit.mpvctl import Mpv
+        with tempfile.TemporaryDirectory() as d:
+            argv = ["python3", "-c", "import sys; sys.stderr.write('[vo/gpu] Could not open DRM device\\n'); sys.exit(3)"]
+            with self.assertRaises(RuntimeError) as cm:
+                Mpv(argv, {}, log_dir=d)
+            self.assertIn("code 3", str(cm.exception))
+            self.assertIn("Could not open DRM device", str(cm.exception))
+
+    def test_a_silent_failure_says_so_and_suggests_what_to_do(self):
+        from tvkit.mpvctl import Mpv
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(RuntimeError) as cm:
+                Mpv(["python3", "-c", "import sys; sys.exit(1)"], {}, log_dir=d)
+            self.assertIn("printed nothing", str(cm.exception))
+
+    def test_why_it_died(self):
+        from tvkit.mpvctl import why_it_died
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "mpv.err")
+            self.assertEqual(why_it_died(p), "")
+            self.assertEqual(why_it_died(None), "")
+            open(p, "w").write("first\n\nthe real reason   \n\n")
+            self.assertEqual(why_it_died(p), "the real reason")
+
+
 class ClockTests(unittest.TestCase):
     def test_faces(self):
         import datetime

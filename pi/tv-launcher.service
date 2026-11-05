@@ -3,6 +3,9 @@ Description=TV Launcher (home menu and apps)
 After=network-online.target
 Wants=network-online.target
 Conflicts=spelunkr-tv.service
+# a launcher that fails 5 times within 2 minutes is not coming back by itself: stop (see: journalctl -u tv-launcher), do not loop for ever
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 User=pi

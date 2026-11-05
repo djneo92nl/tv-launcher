@@ -27,6 +27,16 @@ def _to_gray(match):
     return f"&H{v:02X}{v:02X}{v:02X}&"
 
 
+def why_it_died(err_path, limit=160):
+    """The last non-empty line mpv wrote to its stderr file (the reason it died), or ''."""
+    try:
+        with open(err_path, errors="replace") as f:
+            lines = [ln.strip() for ln in f.read()[-4000:].splitlines() if ln.strip()]
+    except (OSError, TypeError):
+        return ""
+    return lines[-1][:limit] if lines else ""
+
+
 class Mpv:
     mono = False           # True: turn every overlay colour into its gray equivalent (black-and-white screens)
 
@@ -41,10 +51,12 @@ class Mpv:
                 f.write(f"{key} script-message tv {cmd}\n")
         argv = [a.replace("{sock}", self.sock_path).replace("{inputconf}", conf) for a in argv_template]
         err = subprocess.DEVNULL
+        self.err_path = None
         if log_dir:                       # keep mpv's own log and stderr: they say why it died
             os.makedirs(log_dir, exist_ok=True)
             argv += [f"--log-file={os.path.join(log_dir, 'mpv.log')}", "--msg-level=all=warn"]
-            err = open(os.path.join(log_dir, "mpv.err"), "ab")
+            self.err_path = os.path.join(log_dir, "mpv.err")
+            err = open(self.err_path, "ab")
         self.proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err)
         self.events = queue.Queue()
         self._ids = itertools.count(1)
@@ -60,7 +72,8 @@ class Mpv:
         end = time.time() + timeout
         while time.time() < end:
             if self.proc.poll() is not None:
-                raise RuntimeError(f"mpv exited with code {self.proc.returncode} at start-up")
+                why = why_it_died(self.err_path)
+                raise RuntimeError(f"mpv exited with code {self.proc.returncode} at start-up" + (f": {why}" if why else " (it printed nothing; try the profile's mpv command by hand)"))
             try:
                 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 s.connect(self.sock_path)

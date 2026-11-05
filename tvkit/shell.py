@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-from . import config, control, inputs, ui
+from . import config, control, inputs, mpvctl, ui
 from .mpvctl import Mpv
 
 log = logging.getLogger("tvkit")
@@ -135,7 +135,8 @@ class Shell:
         """mpv died: start a new one (an unattended box must come back), but not in a loop."""
         now = time.time()
         self.mpv_deaths = [t for t in self.mpv_deaths if now - t < 300] + [now]
-        log.error("mpv exited unexpectedly; see %s/mpv.log", self.cfg["cache_dir"])
+        why = mpvctl.why_it_died(getattr(self.mpv, "err_path", None))
+        log.error("mpv exited unexpectedly%s; see %s/mpv.log and mpv.err", f" ({why})" if why else "", self.cfg["cache_dir"])
         if len(self.mpv_deaths) > 4:
             return False
         for src in self.inputs:

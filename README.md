@@ -65,6 +65,12 @@ a settings page, and Restart / Shut down. Changes are saved to `~/.config/tv-lau
 Security model, API and limits (no TLS): [docs/WEB.md](docs/WEB.md). Apps get a small control socket for free (`tvkit/control.py`) and can report what they show by overriding `Shell.status()`.
 Each app also has an `app.json` manifest (`tvkit/manifest.py`); the launcher discovers built-in apps and, later, installed ones from it.
 
+## Installing more apps
+
+Apps can come from a repository you add (a folder, a USB stick, a web server): **Store** tab on the phone, or `python3 launcher.py apps install ...` in a shell. Installing, updating and removing from the
+phone ask for OK on the TV, check a SHA-256 and the package's contents first, and keep the old version for rollback. Installed apps run with the same rights as the launcher, so only add repositories you trust.
+Build your own repository with `tools/make_repo.py`. Details and limits: [docs/APP-PACKAGES.md](docs/APP-PACKAGES.md).
+
 ## Writing an app
 
 See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and `draw`, about 40 lines for the template.
@@ -78,6 +84,7 @@ See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and 
 | `tvkit/ui.py` | the flat IPTV look as drawing functions, list view, icon grid |
 | `tvkit/player.py` | playback for apps: resume positions, seek / pause / subtitles keys, the position bar |
 | `tvkit/web.py`, `tvkit/webpage.py` | the web interface: pairing, auth, API, the page |
+| `tvkit/apps.py`, `tvkit/appcli.py`, `tools/make_repo.py` | packages, repositories, the installer, the `apps` command, the repository builder |
 | `tvkit/control.py`, `tvkit/settings.py`, `tvkit/manifest.py` | the per-app control socket, settings schema and overlay, app manifests |
 | `tvkit/net.py`, `tvkit/images.py`, `tvkit/config.py` | HTTP, BMP and PNG pictures, config |
 | `tvkit/mpvctl.py`, `tvkit/inputs.py` | vendored from the TV Tuner repo (keyboard, USB / evdev, CEC, mpv JSON IPC) |

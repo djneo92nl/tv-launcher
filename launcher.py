@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-from tvkit import config, control, manifest, settings, ui
+from tvkit import appcli, apps as appsmod, config, control, manifest, settings, ui
 from tvkit import web as webmod
 from tvkit.shell import Shell, setup_logging
 
@@ -96,8 +96,7 @@ def app_available(app):
     return script is None or os.path.exists(os.path.join(d, script))
 
 
-def user_apps_dir():
-    return os.environ.get("TVL_USER_APPS") or os.path.expanduser("~/.local/share/tv-launcher/apps")
+user_apps_dir = appsmod.user_apps_dir
 
 
 def discover_apps(roots=None):
@@ -246,6 +245,16 @@ def home_screen(menu, now_ms, countdown=None):
     return "\n".join(out)
 
 
+def last_line(path, limit=64):
+    """The last non-empty line of a small text file (an app's stderr), shortened; '' if there is none."""
+    try:
+        with open(path, errors="replace") as f:
+            lines = [ln.strip() for ln in f.read()[-4000:].splitlines() if ln.strip()]
+    except OSError:
+        return ""
+    return (lines[-1][:limit] if lines else "")
+
+
 def confirm_screen(item):
     out = [ui.background()] + ui.header("CONFIRM")
     out.append(ui.text(ui.W // 2, ui.H // 2 - 90, ui.esc(item["title"])[:40], 34, ui.AMBER, an=5, border=2))
@@ -372,6 +381,17 @@ class Launcher(Shell):
         self.catalog = all_apps(self.lcfg)
         self.entries = build_entries(self.lcfg, discover=True, web=self.web is not None)
         self.reload_flag = False
+
+    def repositories(self):
+        return config.load(self.config_path, self.cfg["profile"]).get("repositories", [])
+
+    def reserved_ids(self):
+        return reserved_ids(self.lcfg)
+
+    def apps_changed(self):
+        """An app was installed, updated or removed: rebuild the menu on its next turn."""
+        self.reload_flag = True
+        self.q.put(("app", ("wake", None)))
 
     def bring_home(self):
         """Stop the running app so the TV can show a dialog (the launcher's screen is closed while an app has the display)."""
@@ -506,10 +526,17 @@ class Launcher(Shell):
             cmd[0] = sys.executable or "python3"
         log.info("starting %s: %s (in %s)", entry["id"], cmd, cwd)
         t0 = time.time()
-        env = {**os.environ, "TVL_APP_ID": entry["id"]}
+        # every app can `import tvkit` wherever its folder is (installed apps live outside this repo)
+        env = {**os.environ, "TVL_APP_ID": entry["id"], "PYTHONPATH": os.pathsep.join(p for p in (ROOT, os.environ.get("PYTHONPATH")) if p)}
+        err_path = os.path.join(self.cfg["cache_dir"], entry["id"] + ".err")
+        try:
+            os.makedirs(self.cfg["cache_dir"], exist_ok=True)
+            err = open(err_path, "wb")                       # what the app prints to stderr: the reason, if it dies at once
+        except OSError:
+            err = subprocess.DEVNULL
         try:
             with self.lock:
-                self.child = subprocess.Popen(cmd, cwd=cwd, env=env)
+                self.child = subprocess.Popen(cmd, cwd=cwd, env=env, stderr=err)
                 self.active = entry
         except OSError as ex:
             log.error("could not start %s: %s", entry["id"], ex)
@@ -519,13 +546,16 @@ class Launcher(Shell):
         finally:
             with self.lock:
                 self.child, self.active = None, None
+            if hasattr(err, "close"):
+                err.close()
         log.info("%s exited with code %s after %.0f s", entry["id"], code, time.time() - t0)
         if self.stopping:
             return ""
         if entry["kind"] == "system":
             return f"{entry['name']} did not work (code {code}); see the log" if code else ""
         if code != 0 and time.time() - t0 < self.lcfg.get("crash_seconds", 10):
-            return f"{entry['name']} stopped at once (code {code}); see {self.cfg['cache_dir']}"
+            why = last_line(err_path)
+            return f"{entry['name']} stopped at once: {why}" if why else f"{entry['name']} stopped at once (code {code}); see {self.cfg['cache_dir']}"
         return ""
 
     def quit(self, code=0):
@@ -571,7 +601,24 @@ class Launcher(Shell):
         return 0
 
 
+def reserved_ids(lcfg):
+    """Ids an installed app may not take: built-in apps, the external clients (installed here or not), and the launcher's own names."""
+    ids = {a["id"] for a in discover_apps() if a["source"] != "user"}
+    ids |= {e["id"] for e in DEFAULT_CONFIG["apps"] + list(lcfg.get("apps", [])) if e.get("id")}
+    return ids | {e["id"] for e in lcfg.get("system", []) if e.get("id")} | appsmod.RESERVED_IDS
+
+
+def apps_command(argv):
+    """`launcher.py apps ...`: needs no display and no mpv."""
+    cfg_path = os.environ.get("TVL_CONFIG") or config.default_path()
+    lcfg = load_launcher_config(os.path.join(ROOT, "launcher.json"))
+    repos = lambda: config.load(cfg_path, "mac" if sys.platform == "darwin" else None).get("repositories", [])
+    return appcli.run(argv, reserved_ids(lcfg), repos)
+
+
 def main(argv=None):
+    if (argv if argv is not None else sys.argv[1:])[:1] == ["apps"]:
+        return apps_command((argv if argv is not None else sys.argv[1:])[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=config.default_path(), help="config.json (profiles)")
     ap.add_argument("--launcher-config", default=os.path.join(ROOT, "launcher.json"))

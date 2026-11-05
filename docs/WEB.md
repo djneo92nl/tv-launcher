@@ -20,7 +20,7 @@ The code is single-use, new each time REMOTE is opened, and not shown anywhere e
 | A web page on another site driving the TV | every POST needs the `X-TVL` header and a JSON body, so a browser must send a CORS preflight, which is never answered; a present `Origin` must match; cookie is `SameSite=Strict` |
 | DNS rebinding | the `Host` header must be an IP address, `localhost`, this machine's name or `*.local` |
 | Script injection through names in a feed, a manifest or a server | the page builds everything with `textContent`; the Content-Security-Policy allows scripts and styles only from this server and no inline code at all |
-| Switching the TV off from the sofa-less corner of the network | Restart, Shut down (and later app installs) are not done on the phone's word: the TV shows a dialog, ENTER allows, BACK refuses, and it expires after 60 seconds |
+| Switching the TV off from the sofa-less corner of the network | Restart, Shut down and installing, updating or removing apps are not done on the phone's word: the TV shows a dialog, ENTER allows, BACK refuses, and it expires after 60 seconds |
 | A crashing or hostile app | each app has its own process and socket; the control vocabulary is closed (known keys, typed text, status, quit) and cannot run code or read files |
 
 **Not covered: there is no TLS.** The code and the cookie cross your network in clear text. Use it on a network you trust and do not forward the port to the internet.
@@ -47,6 +47,8 @@ GET  /api/settings             POST /api/settings {changes: {"clock.h24": false}
 GET  /api/devices              POST /api/devices/revoke {id}      POST /api/logout
 POST /api/system {action}      restart | poweroff  ->  202 {confirm: id}; GET /api/confirm/<id> -> pending | allowed | denied | expired
 GET  /api/log
+GET  /api/store                the repositories and what they offer      POST /api/store/refresh
+POST /api/store/install {repo, id}   ->  202 {job}     POST /api/store/remove {id}   ->  202 {job}      GET /api/job/<id>
 ```
 
 Spelunkr TV and IPTV are separate programs with their own web remote (`python3 tv.py --web`); they are not reachable through this interface yet.

@@ -31,7 +31,8 @@ Add the app to `launcher.json`: `{"id": "my-app", "name": "MY APP", "desc": "...
 
 Every app folder has an `app.json` (`id`, `name`, `version`, `description`, `icon`, `tvkit`, `order`, `permissions`; see `tvkit/manifest.py`); without a valid one the launcher skips the folder.
 Override `Shell.status()` (call `super().status()` and fill `screen` and `playing`) so the phone shows what the app is doing. `self.data_dir` is a private folder for the app's own files.
-The launcher starts the app with `TVL_APP_ID` set, which names its control socket and data folder.
+The launcher starts the app with `TVL_APP_ID` set (it names the control socket and data folder) and with `tvkit` on `PYTHONPATH`, so an app works wherever its folder is, installed ones included.
+To share an app, see [APP-PACKAGES.md](APP-PACKAGES.md).
 
 ## Drawing (`tvkit/ui.py`)
 

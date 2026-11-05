@@ -22,7 +22,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-app
 .pad{padding:16px}.muted{color:var(--mute)}h1{font-size:20px;margin:0}h2{font-size:15px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;margin:22px 0 8px}
 header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
 nav{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--line);overflow-x:auto}
-nav button{flex:1;min-width:76px;background:none;border:0;color:var(--mute);padding:10px 6px;border-radius:10px;font:inherit}
+nav button{flex:1;min-width:64px;background:none;border:0;color:var(--mute);padding:10px 6px;border-radius:10px;font:inherit}
 nav button[aria-current=true]{background:var(--blue);color:var(--amber);font-weight:600}
 main{padding:12px 16px 40px;max-width:560px;margin:0 auto}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -33,7 +33,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .pad-grid .btn{font-size:20px;min-height:58px}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.fixed{flex:none;width:auto;padding-left:20px;padding-right:20px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:10px 0}
-.card b{display:block}.card small{color:var(--mute)}
+.card b{display:block}.card small{display:block;color:var(--mute)}
 .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}.bar>i{display:block;height:100%;background:var(--amber)}
 .field{margin:12px 0}.field label{display:block;margin-bottom:4px}.field small{display:block;color:var(--mute);margin-top:2px}
 input[type=text],input[type=number],input[type=password],select,textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:44px}
@@ -47,7 +47,7 @@ input[type=checkbox]{width:22px;height:22px;vertical-align:middle;margin-right:8
 
 JS = r"""
 'use strict';
-const state = {tab: 'remote', status: null, apps: null, settings: null, devices: null, timer: null, session: null};
+const state = {tab: 'remote', status: null, apps: null, settings: null, devices: null, store: null, timer: null, session: null};
 const app = document.getElementById('app');
 
 function el(tag, props, ...kids) {
@@ -155,7 +155,7 @@ function settingsView() {
       else if (f.type === 'app') { input = el('select', {}, el('option', {value: ''}, '(none)'), ...appIds.map(i => el('option', {value: i}, i))); input.value = v || ''; get = () => input.value || null; }
       else if (f.type === 'applist') { input = el('input', {type: 'text', value: (v || []).join(', ')}); get = () => input.value.split(',').map(s => s.trim()).filter(Boolean); }
       else if (f.type === 'paths') { input = el('textarea', {rows: '3'}); input.value = (v || []).join('\n'); get = () => input.value.split('\n').map(s => s.trim()).filter(Boolean); }
-      else if (f.type === 'feeds') { input = el('textarea', {rows: '4', placeholder: 'Name | https://address'}); input.value = (v || []).map(x => x.name + ' | ' + x.url).join('\n');
+      else if (f.type === 'feeds' || f.type === 'repos') { input = el('textarea', {rows: '4', placeholder: 'Name | https://address'}); input.value = (v || []).map(x => x.name + ' | ' + x.url).join('\n');
         get = () => input.value.split('\n').map(s => s.trim()).filter(Boolean).map(l => { const i = l.indexOf('|'); return {name: l.slice(0, i).trim(), url: l.slice(i + 1).trim()}; }); }
       else { input = el('input', {type: 'text', value: v == null ? '' : v}); get = () => input.value; }
       inputs[f.key] = {get, orig: JSON.stringify(v == null ? (f.type === 'app' ? null : v) : v)};
@@ -196,14 +196,54 @@ function systemView() {
     el('h2', {}, 'Log'), el('pre', {class: 'card muted log'}, state.log || 'Loading...'));
 }
 
+// ---- store ----
+async function watchJob(id, what) {
+  toast('Working on it...');
+  for (let i = 0; i < 90; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    let j; try { j = await api('/job/' + id); } catch (e) { return; }
+    if (j.state === 'confirm') toast('Look at the TV: press OK to ' + what);
+    else if (j.state === 'installing') toast(j.message || 'Working...');
+    else if (j.state === 'done') { toast(j.message || 'Done'); state.store = null; await load('store'); return; }
+    else if (['failed', 'denied', 'expired'].includes(j.state)) { toast(j.message || 'Not done'); return; }
+  }
+}
+function storeView() {
+  const st = state.store;
+  if (!st) return el('main', {}, el('p', {class: 'muted'}, 'Loading...'));
+  const out = [];
+  out.push(el('div', {class: 'row'},
+    el('button', {class: 'btn small', onclick: act(async () => { await api('/store/refresh', {}); state.store = null; await load('store'); })}, 'Refresh'),
+    el('button', {class: 'btn small', onclick: () => { state.tab = 'settings'; load('settings'); render(); }}, 'Repositories...')));
+  if (!st.repos.length) out.push(el('div', {class: 'card'}, el('b', {}, 'No repositories yet'), el('small', {}, 'Add one under Settings > Apps (one per line: Name | address). Only add repositories you trust: installed apps run with the same rights as the launcher.')));
+  for (const r of st.repos) out.push(el('div', {class: 'card'}, el('b', {}, r.name, el('span', {class: 'badge'}, r.ok ? r.count + ' apps' : 'not reachable')),
+    el('small', {}, r.ok ? r.url : r.error), ...(r.skipped || []).map(x => el('small', {}, 'skipped ' + x))));
+  out.push(el('h2', {}, 'Available'));
+  if (!st.available.length) out.push(el('p', {class: 'muted'}, 'Nothing to show.'));
+  for (const a of st.available) {
+    const label = a.state === 'update' ? 'Update to ' + a.version : a.state === 'new' ? 'Install' : null;
+    out.push(el('div', {class: 'card'}, el('b', {}, a.name, el('span', {class: 'badge'}, 'v' + a.version), a.secure ? null : el('span', {class: 'badge'}, 'not encrypted')),
+      el('small', {}, [a.description, a.repo, Math.max(1, Math.round(a.size / 1024)) + ' KB'].filter(Boolean).join('  ·  ')),
+      a.permissions.length ? el('small', {}, 'Asks for: ' + a.permissions.join('; ')) : null,
+      el('div', {class: 'mt8'}, label ? el('button', {class: 'btn small primary', onclick: act(async () => {
+        const r = await api('/store/install', {repo: a.repo, id: a.id}); watchJob(r.job, a.state === 'update' ? 'update' : 'install');
+      })}, label) : el('span', {class: 'muted'}, a.state === 'installed' ? 'Installed' + (a.installed_version ? ' (v' + a.installed_version + ')' : '') : 'Built in'))));
+  }
+  out.push(el('h2', {}, 'Installed from repositories'));
+  if (!st.installed.length) out.push(el('p', {class: 'muted'}, 'None yet.'));
+  for (const a of st.installed) out.push(el('div', {class: 'card'}, el('b', {}, a.name, el('span', {class: 'badge'}, 'v' + a.version)), el('small', {}, a.description),
+    el('div', {class: 'mt8'}, el('button', {class: 'btn small danger', onclick: act(async () => { const r = await api('/store/remove', {id: a.id}); watchJob(r.job, 'remove'); })}, 'Remove'))));
+  return el('main', {}, ...out);
+}
+
 // ---- frame ----
-const TABS = [['remote', 'Remote'], ['apps', 'Apps'], ['settings', 'Settings'], ['system', 'System']];
+const TABS = [['remote', 'Remote'], ['apps', 'Apps'], ['store', 'Store'], ['settings', 'Settings'], ['system', 'System']];
 function render() {
   const s = state.session;
   if (!s) return;
   app.replaceChildren();
   if (!s.paired) { app.append(el('header', {}, el('h1', {}, 'TV Launcher')), pairView()); return; }
-  const views = {remote: remoteView, apps: appsView, settings: settingsView, system: systemView};
+  const views = {remote: remoteView, apps: appsView, store: storeView, settings: settingsView, system: systemView};
   app.append(el('header', {}, el('h1', {}, s.server || 'TV Launcher'), el('span', {class: 'muted'}, s.name)),
     el('nav', {}, ...TABS.map(([id, label]) => el('button', {'aria-current': state.tab === id ? 'true' : 'false', onclick: () => { state.tab = id; load(id); render(); }}, label))),
     views[state.tab]());
@@ -213,6 +253,7 @@ async function load(tab) {
     if (tab === 'apps' || tab === 'settings') state.apps = (await api('/apps')).apps;
     if (tab === 'settings' && !state.settings) state.settings = await api('/settings');
     if (tab === 'system') { state.devices = (await api('/devices')).devices; state.log = (await api('/log')).lines.join('\n'); }
+    if (tab === 'store' && !state.store) state.store = await api('/store');
     if (tab === 'remote' || tab === 'apps') state.status = await api('/status');
   } catch (e) { return; }
   if (state.tab === tab) render();

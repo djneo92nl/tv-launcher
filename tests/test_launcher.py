@@ -154,6 +154,24 @@ class RunTests(unittest.TestCase):
             L, e = self.make(d, ["python3", "-c", "import sys; sys.exit(3)"])
             self.assertIn("stopped at once (code 3)", L.run_app(e))
 
+    def test_an_app_outside_the_repo_can_import_tvkit_and_a_crash_says_why(self):
+        with tempfile.TemporaryDirectory() as d:
+            L, e = self.make(d, ["python3", "-c", "import tvkit.ui, sys; sys.exit(0)"])
+            self.assertEqual(L.run_app(e), "")                                       # tvkit is importable from a folder that is not in the repo
+            L, e = self.make(d, ["python3", "-c", "import definitely_not_a_module"])
+            note = L.run_app(e)
+            self.assertIn("stopped at once", note)
+            self.assertIn("No module named", note)                                   # the reason, not just "code 1"
+            self.assertIn("definitely_not_a_module", note)
+
+    def test_last_line_of_stderr(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.err")
+            self.assertEqual(launcher.last_line(p), "")
+            open(p, "w").write("Traceback...\n  File x\nValueError: " + "z" * 200 + "\n\n")
+            self.assertTrue(launcher.last_line(p).startswith("ValueError: zzz"))
+            self.assertLessEqual(len(launcher.last_line(p)), 64)
+
     def test_missing_program_is_reported(self):
         with tempfile.TemporaryDirectory() as d:
             L, e = self.make(d, ["definitely-not-a-program"])

@@ -24,7 +24,8 @@ import socket
 import threading
 import time
 
-from . import control, net, settings
+from . import apps as appsmod
+from . import control, manifest, net, settings
 from . import webpage
 
 PIN_TTL_S, PIN_TRIES, PIN_WINDOW_S, LOCK_AFTER, LOCK_S = 300, 5, 60, 10, 180
@@ -189,14 +190,53 @@ class Confirmations:
             it["state"] = "allowed" if allow else "denied"
             action = it["action"] if allow else None
         if action:
-            threading.Thread(target=action, daemon=True, name="confirmed-action").start()
+            def run():
+                try:
+                    it["result"] = action()
+                except Exception:
+                    it["result"] = {"ok": False, "error": "something went wrong"}
+            threading.Thread(target=run, daemon=True, name="confirmed-action").start()
         return True
 
     def state(self, cid):
         with self.lock:
             self._expire()
             it = self.items.get(cid)
-            return {"state": it["state"], "title": it["title"]} if it else None
+            return {"state": it["state"], "title": it["title"], "result": it.get("result")} if it else None
+
+
+# ---- background jobs started from the phone (downloads, installs) ----
+class Jobs:
+    """{id: {state, message, confirm}}. states: working, confirm (waiting for OK on the TV), installing, done, failed, denied, expired."""
+
+    def __init__(self):
+        self.items, self.lock, self.order = {}, threading.Lock(), []
+
+    def create(self):
+        jid = secrets.token_hex(6)
+        with self.lock:
+            self.items[jid] = {"state": "working", "message": "", "confirm": None}
+            self.order = (self.order + [jid])[-30:]
+            for old in [k for k in self.items if k not in self.order]:
+                del self.items[old]
+        return jid
+
+    def set(self, jid, state, message="", confirm=None):
+        with self.lock:
+            if jid in self.items:
+                self.items[jid].update(state=state, message=message, confirm=confirm if confirm is not None else self.items[jid]["confirm"])
+
+    def get(self, jid, confirmations):
+        """The job, with a refused or expired question on the TV reflected in its state."""
+        with self.lock:
+            it = dict(self.items.get(jid) or {})
+        if not it:
+            return None
+        if it["state"] == "confirm" and it.get("confirm"):
+            c = confirmations.state(it["confirm"])
+            if c and c["state"] in ("denied", "expired"):
+                it["state"], it["message"] = c["state"], "Cancelled on the TV" if c["state"] == "denied" else "Nobody answered on the TV"
+        return it
 
 
 # ---- the server ----
@@ -321,6 +361,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if method == "GET" and path.startswith("/api/confirm/"):
                 st = self.web.confirmations.state(path.rsplit("/", 1)[1])
                 return self.send_json(200, st) if st else self.fail(404, "no such request")
+            if method == "GET" and path.startswith("/api/job/"):
+                st = self.web.jobs.get(path.rsplit("/", 1)[1], self.web.confirmations)
+                return self.send_json(200, st) if st else self.fail(404, "no such job")
             return self.fail(404, "not found")
         try:
             code, obj = h(self, did, body)
@@ -352,16 +395,21 @@ class WebServer:
         confirm(title, lines, action) -> id   (bring the TV to a place where the dialog can be shown)
         system(action)            "restart" | "poweroff": called only after OK on the TV
         log_tail(n) -> [str]
+        repositories() -> [{name, url}]; reserved_ids() -> set; apps_changed()   (the store)
     """
 
     def __init__(self, host, port=8090, bind="0.0.0.0", devices=None, pairing=None, confirmations=None, log=None):
         import logging
         self.host, self.log = host, log or logging.getLogger("web")
         self.devices, self.pairing, self.confirmations = devices or Devices(), pairing or Pairing(), confirmations or Confirmations()
+        self.jobs = Jobs()
+        self.store = appsmod.Store(host.repositories) if hasattr(host, "repositories") else None
         self.handlers = {("GET", "/api/status"): self.h_status, ("POST", "/api/key"): self.h_key, ("POST", "/api/text"): self.h_text, ("POST", "/api/home"): self.h_home,
                          ("GET", "/api/apps"): self.h_apps, ("POST", "/api/apps/start"): self.h_start, ("GET", "/api/settings"): self.h_settings_get,
                          ("POST", "/api/settings"): self.h_settings_set, ("GET", "/api/devices"): self.h_devices, ("POST", "/api/devices/revoke"): self.h_revoke,
-                         ("POST", "/api/logout"): self.h_logout, ("POST", "/api/system"): self.h_system, ("GET", "/api/log"): self.h_log}
+                         ("POST", "/api/logout"): self.h_logout, ("POST", "/api/system"): self.h_system, ("GET", "/api/log"): self.h_log,
+                         ("GET", "/api/store"): self.h_store, ("POST", "/api/store/refresh"): self.h_store_refresh, ("POST", "/api/store/install"): self.h_store_install,
+                         ("POST", "/api/store/remove"): self.h_store_remove}
         self.httpd = http.server.ThreadingHTTPServer((bind, port), Handler)
         self.httpd.daemon_threads = True
         self.httpd.web = self
@@ -451,3 +499,104 @@ class WebServer:
 
     def h_log(self, h, did, body):
         return 200, {"lines": self.host.log_tail(60)}
+
+    # ---- the store: browse repositories, install, update, remove ----
+    def _reserved(self):
+        return self.host.reserved_ids()
+
+    def h_store(self, h, did, body):
+        have = {a["id"]: a for a in appsmod.installed()}
+        reserved = self._reserved()
+        repos, available = [], []
+        for r in self.store.catalog():
+            repos.append({k: r[k] for k in ("name", "url", "ok", "error", "count", "skipped")})
+            for e in r["apps"]:
+                cur = have.get(e["id"])
+                state = ("builtin" if e["id"] in reserved or e["id"] in appsmod.RESERVED_IDS else "update" if cur and manifest.newer(e["version"], cur["version"])
+                         else "installed" if cur else "new")
+                available.append({"id": e["id"], "name": e["name"], "version": e["version"], "description": e["description"], "size": e["size"], "repo": e["repo"],
+                                  "permissions": appsmod.describe_permissions(e["permissions"]), "state": state, "installed_version": cur["version"] if cur else None,
+                                  "secure": e["package"].startswith("https://") or not e["package"].startswith("http")})
+        installed = [{"id": a["id"], "name": a["name"], "version": a["version"], "description": a["description"]} for a in have.values()]
+        return 200, {"repos": repos, "available": available, "installed": installed}
+
+    def h_store_refresh(self, h, did, body):
+        self.store.refresh()
+        return 200, {"ok": True}
+
+    def _wait_stopped(self, app_id, seconds=12):
+        """The TV dialog stops a running app; wait until it has, so its files are not replaced under it."""
+        end = time.time() + seconds
+        while time.time() < end:
+            run = self.host.status().get("running")
+            if not run or run["id"] != app_id:
+                return
+            time.sleep(0.25)
+        raise appsmod.AppsError("close the app first, then try again")
+
+    def h_store_install(self, h, did, body):
+        repo, app_id = body.get("repo"), body.get("id")
+        if not isinstance(repo, str) or not isinstance(app_id, str):
+            return 400, {"ok": False, "error": "say which app from which repository"}
+        entry = self.store.find(repo, app_id)                  # the address and checksum come from the repository the user configured, never from the phone
+        if not entry:
+            return 404, {"ok": False, "error": "that app is not in the repository (any more)"}
+        job = self.jobs.create()
+        who = self.devices.name(did)
+        threading.Thread(target=self._install_job, args=(job, entry, who), daemon=True, name="install-job").start()
+        return 202, {"ok": True, "job": job}
+
+    def _install_job(self, job, entry, who):
+        try:
+            data, plan = appsmod.download_and_check(entry, self._reserved())
+        except appsmod.AppsError as ex:
+            return self.jobs.set(job, "failed", str(ex))
+        except Exception:
+            self.log.exception("install check failed")
+            return self.jobs.set(job, "failed", "something went wrong")
+        m = plan["manifest"]
+        perms = appsmod.describe_permissions(m["permissions"]) or ["asks for no special access (not enforced)"]
+        insecure = entry["package"].startswith("http://")
+        lines = [m["description"] or "(no description)", f"From {entry['repo']}, {max(1, plan['size'] // 1024)} KB" + ("  -  plain http, NOT encrypted" if insecure else ""),
+                 *[f"- {p}" for p in perms[:2]], *([f"- and {len(perms) - 2} more"] if len(perms) > 2 else []),
+                 "It runs with the same rights as the launcher.", f"Asked from {who}."][:7]
+
+        def do():
+            self.jobs.set(job, "installing", "Installing...")
+            try:
+                self._wait_stopped(m["id"])
+                r = appsmod.install_package(data, self._reserved(), expect=entry)
+                self.host.apps_changed()
+                self.jobs.set(job, "done", f"{r['name']} {r['version']} {'updated' if r['action'] == 'update' else 'installed'}")
+                return {"ok": True}
+            except appsmod.AppsError as ex:
+                self.jobs.set(job, "failed", str(ex))
+                return {"ok": False, "error": str(ex)}
+            except Exception:
+                self.log.exception("install failed")
+                self.jobs.set(job, "failed", "something went wrong")
+                return {"ok": False, "error": "something went wrong"}
+        cid = self.host.confirm(f"{'Update' if plan['action'] == 'update' else 'Install'} {m['name']} {m['version']}?", lines, do)
+        self.jobs.set(job, "confirm", "Look at the TV and press OK", confirm=cid)
+
+    def h_store_remove(self, h, did, body):
+        app_id = body.get("id")
+        target = next((a for a in appsmod.installed() if a["id"] == app_id), None) if isinstance(app_id, str) else None
+        if not target:
+            return 404, {"ok": False, "error": "that app is not installed (built-in apps cannot be removed)"}
+        job = self.jobs.create()
+
+        def do():
+            self.jobs.set(job, "installing", "Removing...")
+            try:
+                self._wait_stopped(target["id"])
+                appsmod.remove(target["id"])
+                self.host.apps_changed()
+                self.jobs.set(job, "done", f"{target['name']} removed")
+                return {"ok": True}
+            except appsmod.AppsError as ex:
+                self.jobs.set(job, "failed", str(ex))
+                return {"ok": False, "error": str(ex)}
+        cid = self.host.confirm(f"Remove {target['name']}?", ["Its saved data is kept.", "It can be restored from the backup folder.", f"Asked from {self.devices.name(did)}."], do)
+        self.jobs.set(job, "confirm", "Look at the TV and press OK", confirm=cid)
+        return 202, {"ok": True, "job": job}

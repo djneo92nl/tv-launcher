@@ -6,10 +6,13 @@ import stat
 import tempfile
 import time
 import unittest
+import sys
 
 import support  # noqa: F401
 from support import reset_settings
 from tvkit import control, settings, web
+
+sys.path.insert(0, os.path.join(support.ROOT, "tools"))
 
 
 def tearDownModule():
@@ -55,6 +58,18 @@ class FakeHost:
 
     def log_tail(self, n):
         return ["line one", "line two"]
+
+    repos = []
+    changed_apps = 0
+
+    def repositories(self):
+        return self.repos
+
+    def reserved_ids(self):
+        return {"clock", "media"}
+
+    def apps_changed(self):
+        self.changed_apps += 1
 
 
 class Remote:
@@ -176,7 +191,8 @@ class PairingTests(WebCase):
 class AuthTests(WebCase):
     PROTECTED = [("GET", "/api/status"), ("GET", "/api/apps"), ("GET", "/api/settings"), ("GET", "/api/devices"), ("GET", "/api/log"), ("GET", "/api/confirm/abc"),
                  ("POST", "/api/key"), ("POST", "/api/text"), ("POST", "/api/home"), ("POST", "/api/apps/start"), ("POST", "/api/settings"),
-                 ("POST", "/api/devices/revoke"), ("POST", "/api/system"), ("POST", "/api/logout")]
+                 ("POST", "/api/devices/revoke"), ("POST", "/api/system"), ("POST", "/api/logout"),
+                 ("GET", "/api/store"), ("POST", "/api/store/refresh"), ("POST", "/api/store/install"), ("POST", "/api/store/remove"), ("GET", "/api/job/abc")]
 
     def test_every_api_route_refuses_an_unpaired_caller(self):
         for method, path in self.PROTECTED:
@@ -389,6 +405,196 @@ class ActionTests(WebCase):
         self.host.apps = lambda: 1 / 0
         self.assertEqual(self.r.call("GET", "/api/apps")[0], 500)
         self.assertEqual(self.r.call("GET", "/api/session")[0], 200)
+
+
+def wait_for(cond, seconds=5):
+    end = time.time() + seconds
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+class StoreTests(WebCase):
+    def setUp(self):
+        super().setUp()
+        from tvkit import apps
+        import make_repo
+        self.apps, self.make_repo = apps, make_repo
+        self.saved = {k: os.environ.get(k) for k in ("TVL_USER_APPS", "TVL_DATA_DIR")}
+        os.environ["TVL_USER_APPS"] = os.path.join(self.tmp, "userapps")
+        os.environ["TVL_DATA_DIR"] = os.path.join(self.tmp, "data")
+        self.addCleanup(self.restore)
+        self.repo = os.path.join(self.tmp, "repo")
+        self.host.repos = [{"name": "Local", "url": self.repo}]
+        self.build("weather", "1.0.0")
+        self.pair()
+
+    def restore(self):
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def build(self, id_="weather", version="1.0.0", py="x = 1\n"):
+        f = os.path.join(self.tmp, "src", id_)
+        os.makedirs(f, exist_ok=True)
+        with open(os.path.join(f, "app.json"), "w") as fh:
+            json.dump({"id": id_, "name": id_.upper(), "version": version, "description": "Shows the weather", "icon": "info",
+                       "permissions": [{"kind": "network", "detail": "weather.example.org"}, {"kind": "files", "detail": "its own folder"}]}, fh)
+        with open(os.path.join(f, "app.py"), "w") as fh:
+            fh.write(py)
+        self.make_repo.main(["--name", "Local", "--out", self.repo, f])
+        self.server.store.refresh()
+
+    def start_install(self, body=None):
+        code, obj, _ = self.r.call("POST", "/api/store/install", body or {"repo": "Local", "id": "weather"})
+        self.assertEqual(code, 202, obj)
+        return obj["job"]
+
+    def job(self, jid):
+        return self.r.call("GET", "/api/job/" + jid)[1]
+
+    def at_confirm(self, jid):
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "confirm"), self.job(jid))
+        return self.job(jid)["confirm"]
+
+    def test_the_store_lists_repositories_and_apps_without_leaking_addresses(self):
+        code, obj, _ = self.r.call("GET", "/api/store")
+        self.assertEqual(code, 200)
+        self.assertEqual([(r["name"], r["ok"], r["count"]) for r in obj["repos"]], [("Local", True, 1)])
+        a = obj["available"][0]
+        self.assertEqual((a["id"], a["state"], a["version"], a["secure"]), ("weather", "new", "1.0.0", True))
+        self.assertEqual(a["permissions"], ["network: weather.example.org", "files: its own folder"])
+        self.assertNotIn("package", a)
+        self.assertNotIn("weather-1.0.0.zip", json.dumps(obj))                          # the package address stays on the server; the configured repository address is shown on purpose
+
+    def test_install_waits_for_the_tv_shows_what_it_will_do_and_then_installs(self):
+        jid = self.start_install()
+        cid = self.at_confirm(jid)
+        title, lines = self.host.confirms[0]
+        self.assertEqual(title, "Install WEATHER 1.0.0?")
+        text = "\n".join(lines)
+        for part in ("Shows the weather", "From Local", "network: weather.example.org", "same rights as the launcher", "Test phone"):
+            self.assertIn(part, text)
+        self.assertEqual(self.apps.installed(), [])                                      # nothing is installed on the phone's word
+        self.assertTrue(self.confirmations.answer(cid, True))
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "done"), self.job(jid))
+        self.assertEqual([a["id"] for a in self.apps.installed()], ["weather"])
+        self.assertEqual(self.host.changed_apps, 1)
+        self.assertEqual(self.r.call("GET", "/api/store")[1]["available"][0]["state"], "installed")
+
+    def test_no_means_no_and_silence_means_no(self):
+        jid = self.start_install()
+        self.assertTrue(self.confirmations.answer(self.at_confirm(jid), False))
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "denied"))
+        self.assertEqual(self.job(jid)["message"], "Cancelled on the TV")
+        jid = self.start_install()
+        self.at_confirm(jid)
+        self.now[0] += web.CONFIRM_TTL_S + 1
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "expired"))
+        self.assertEqual(self.apps.installed(), [])
+        self.assertEqual(self.host.changed_apps, 0)
+
+    def test_the_phone_cannot_choose_the_address_or_the_checksum(self):
+        evil = {"repo": "Local", "id": "weather", "url": "http://evil.example/x.zip", "package": "/etc/passwd", "sha256": "0" * 64}
+        jid = self.start_install(evil)
+        self.at_confirm(jid)
+        self.assertTrue(self.confirmations.answer(self.job(jid)["confirm"], True))
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "done"))                 # it installed the repository's package, ignoring the extras
+        for bad in ({"repo": "Nope", "id": "weather"}, {"repo": "Local", "id": "ghost"}):
+            self.assertEqual(self.r.call("POST", "/api/store/install", bad)[0], 404)
+        for bad in ({}, {"repo": 5, "id": "weather"}, {"repo": "Local", "id": ["weather"]}, {"repo": None, "id": None}):
+            self.assertEqual(self.r.call("POST", "/api/store/install", bad)[0], 400)
+
+    def test_a_tampered_package_fails_before_the_tv_is_even_asked(self):
+        path = os.path.join(self.repo, "weather-1.0.0.zip")
+        raw = open(path, "rb").read()
+        with open(path, "wb") as f:
+            f.write(raw[:-1] + bytes([raw[-1] ^ 1]))
+        jid = self.start_install()
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "failed"))
+        self.assertIn("checksum", self.job(jid)["message"])
+        self.assertEqual(self.host.confirms, [])
+        self.assertEqual(self.apps.installed(), [])
+
+    def test_an_app_with_a_built_in_id_is_shown_as_built_in_and_refused(self):
+        self.build("clock", "9.0.0")
+        state = {a["id"]: a["state"] for a in self.r.call("GET", "/api/store")[1]["available"]}
+        self.assertEqual(state["clock"], "builtin")
+        jid = self.start_install({"repo": "Local", "id": "clock"})
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "failed"))
+        self.assertIn("built-in", self.job(jid)["message"])
+        self.assertEqual(self.host.confirms, [])
+
+    def test_update_and_the_old_version_is_kept(self):
+        self.confirmations.answer(self.at_confirm(self.start_install()), True)
+        self.assertTrue(wait_for(lambda: [a["version"] for a in self.apps.installed()] == ["1.0.0"]))
+        self.build("weather", "1.1.0", "x = 2\n")
+        a = self.r.call("GET", "/api/store")[1]["available"][0]
+        self.assertEqual((a["state"], a["installed_version"], a["version"]), ("update", "1.0.0", "1.1.0"))
+        jid = self.start_install()
+        cid = self.at_confirm(jid)
+        self.assertEqual(self.host.confirms[-1][0], "Update WEATHER 1.1.0?")
+        self.confirmations.answer(cid, True)
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "done"))
+        self.assertEqual(self.apps.installed()[0]["version"], "1.1.0")
+        self.assertEqual(self.apps.rollback("weather")["version"], "1.0.0")
+
+    def test_installing_the_same_version_again_is_refused(self):
+        self.confirmations.answer(self.at_confirm(self.start_install()), True)
+        self.assertTrue(wait_for(lambda: self.apps.installed()))
+        jid = self.start_install()
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "failed"))
+        self.assertIn("already installed", self.job(jid)["message"])
+
+    def test_remove_needs_the_tv_and_never_touches_built_in_apps(self):
+        self.confirmations.answer(self.at_confirm(self.start_install()), True)
+        self.assertTrue(wait_for(lambda: self.apps.installed()))
+        code, obj, _ = self.r.call("POST", "/api/store/remove", {"id": "weather"})
+        self.assertEqual(code, 202)
+        cid = self.at_confirm(obj["job"])
+        self.assertEqual(self.host.confirms[-1][0], "Remove WEATHER?")
+        self.assertEqual(len(self.apps.installed()), 1)
+        self.confirmations.answer(cid, False)
+        self.assertTrue(wait_for(lambda: self.job(obj["job"])["state"] == "denied"))
+        self.assertEqual(len(self.apps.installed()), 1)
+        code, obj, _ = self.r.call("POST", "/api/store/remove", {"id": "weather"})
+        self.confirmations.answer(self.at_confirm(obj["job"]), True)
+        self.assertTrue(wait_for(lambda: self.job(obj["job"])["state"] == "done"))
+        self.assertEqual(self.apps.installed(), [])
+        for bad in ({"id": "clock"}, {"id": "../x"}, {"id": 5}, {}):
+            self.assertEqual(self.r.call("POST", "/api/store/remove", bad)[0], 404)
+
+    def test_an_installer_waits_for_a_running_app_to_stop_and_gives_up_if_it_does_not(self):
+        orig = self.server._wait_stopped
+        self.server._wait_stopped = lambda app_id, seconds=1.0: orig(app_id, seconds=seconds)
+        self.host.running = {"id": "weather", "name": "WEATHER"}
+        jid = self.start_install()
+        cid = self.at_confirm(jid)
+        threading_timer = __import__("threading").Timer(0.4, lambda: setattr(self.host, "running", None))
+        threading_timer.start()
+        self.confirmations.answer(cid, True)
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "done"))
+        self.host.running = {"id": "weather", "name": "WEATHER"}
+        self.build("weather", "1.2.0")
+        jid = self.start_install()
+        self.confirmations.answer(self.at_confirm(jid), True)
+        self.assertTrue(wait_for(lambda: self.job(jid)["state"] == "failed", 6))
+        self.assertIn("close the app", self.job(jid)["message"])
+        self.assertEqual(self.apps.installed()[0]["version"], "1.0.0")
+
+    def test_a_broken_repository_is_reported_and_unknown_jobs_are_404(self):
+        self.host.repos = [{"name": "Gone", "url": "/definitely/not/here"}]
+        self.server.store.refresh()
+        obj = self.r.call("GET", "/api/store")[1]
+        self.assertFalse(obj["repos"][0]["ok"])
+        self.assertNotIn("/definitely", obj["repos"][0]["error"])                        # an error message never carries a path
+        self.assertEqual(obj["available"], [])
+        self.assertEqual(self.r.call("GET", "/api/job/nonexistent")[0], 404)
+        self.assertEqual(self.r.call("POST", "/api/store/refresh", {})[0], 200)
 
 
 class HelperTests(unittest.TestCase):

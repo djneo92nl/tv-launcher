@@ -3,7 +3,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))    # the repo root, for tvkit
+# The launcher puts tvkit on PYTHONPATH for every app, wherever its folder is. This line only matters when you run the file by hand from inside the repo.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 from tvkit import ui
 from tvkit.shell import Shell, run_app

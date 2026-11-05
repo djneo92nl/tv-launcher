@@ -17,6 +17,7 @@ from . import net
 URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$")
 HOST_RE = re.compile(r"^(https?://)?[A-Za-z0-9._-]+(:\d{1,5})?(/[^\s]*)?$")
 APP_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+REPO_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$")
 
 
 class SettingsError(ValueError):
@@ -48,6 +49,7 @@ SCHEMA = [
     field("media.roots", "Media folders", "paths", ["/media", "/mnt", "~/Videos", "~/Movies", "~/Music"], "Media"),
     field("remoment.host", "ReMoment server", "host", "http://remoment.local", "ReMoment"),
     field("jellyfin.host", "Jellyfin server", "host", "http://jellyfin.local:8096", "Jellyfin"),
+    field("repositories", "App repositories", "repos", [], "Apps", max_items=5, help="One per line: Name | address of the repository (an index.json, or the folder that holds it). Only add ones you trust."),
     field("web.enabled", "Web interface", "bool", True, "Web", help="Remote control and settings from a phone on your network."),
     field("web.port", "Web port", "int", 8090, "Web", min=1024, max=65535),
 ]
@@ -107,6 +109,21 @@ def clean(key, value, known_apps=None):
                 if not isinstance(v, str) or not v.strip() or len(v) > 300 or "\0" in v or not (v.startswith(("/", "~"))):
                     raise SettingsError(f"{v!r} must be a full path starting with / or ~")
                 out.append(v.strip())
+            return out
+        if kind == "repos":
+            if not isinstance(value, list) or len(value) > f["max_items"]:
+                raise SettingsError(f"at most {f['max_items']} repositories")
+            out, seen = [], set()
+            for v in value:
+                if not isinstance(v, dict) or not isinstance(v.get("name"), str) or not isinstance(v.get("url"), str):
+                    raise SettingsError("each repository needs a name and an address")
+                name, url = v["name"].strip(), v["url"].strip()
+                if not REPO_NAME_RE.match(name) or name in seen:
+                    raise SettingsError("a repository name is 1-40 letters, digits, spaces, dots, dashes, and each name is used once")
+                if len(url) > 300 or "\0" in url or not (URL_RE.match(url) or url.startswith(("/", "~", "file://"))):
+                    raise SettingsError(f"{url!r} must be an http(s) address or a folder on this device")
+                seen.add(name)
+                out.append({"name": name, "url": url})
             return out
         if kind == "feeds":
             if not isinstance(value, list) or len(value) > f["max_items"]:

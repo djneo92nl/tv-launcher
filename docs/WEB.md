@@ -5,11 +5,11 @@ Off with `"web": {"enabled": false}` in `config.json` (or Settings > Web). Port 
 
 ## Pairing
 
-1. On the TV open the **REMOTE** tile. It shows the address (`http://<ip>:8090`) and a 6-digit code, valid for 5 minutes.
+1. On the TV open **THIS PI** and choose **PAIR A PHONE** (restart and shut down are there too). It shows the address (`http://<ip>:8090`) and a 6-digit code, valid for 5 minutes.
 2. On the phone open that address, type the code and a name for the phone. The phone stays paired (a cookie) until you sign it out or remove it under System.
 3. Paired phones are listed under System; any of them can be removed, and so can the one you are holding.
 
-The code is single-use, new each time REMOTE is opened, and not shown anywhere else (not in the log, not in the API).
+The code is single-use, new each time pairing is opened, and not shown anywhere else (not in the log, not in the API).
 
 ## What it protects against
 
@@ -24,6 +24,11 @@ The code is single-use, new each time REMOTE is opened, and not shown anywhere e
 | A crashing or hostile app | each app has its own process and socket; the control vocabulary is closed (known keys, typed text, status, quit) and cannot run code or read files |
 
 **Not covered: there is no TLS.** The code and the cookie cross your network in clear text. Use it on a network you trust and do not forward the port to the internet.
+
+## Screen edges
+
+Some TVs and monitors crop the picture, so the first and last letters of a line can be cut off. Settings > Display > **Screen edge margin** (percent, default 7) pulls everything away from the edges;
+raise it until nothing is cut. It is a percentage, so it works the same on 4:3 and 16:9 screens.
 
 ## Settings
 

@@ -379,7 +379,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.web.pairing.last_success = (self.web.devices.name(did), time.time())
             cookie = f"{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={60 * 60 * 24 * 365}"
             return self.send_json(200, {"ok": True}, {"Set-Cookie": cookie})
-        messages = {"wrong": "That code is not right.", "closed": "Open REMOTE on the TV first, then enter the code it shows.",
+        messages = {"wrong": "That code is not right.", "closed": "On the TV open THIS PI and choose PAIR A PHONE first, then enter the code it shows.",
                     "slow": "Too many tries. Wait a minute.", "locked": "Too many wrong codes. Try again in a few minutes."}
         return self.fail(429 if result in ("slow", "locked") else 403, messages[result])
 

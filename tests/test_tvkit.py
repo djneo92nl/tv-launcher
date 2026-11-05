@@ -44,8 +44,42 @@ class UiTests(unittest.TestCase):
         self.assertEqual(ui.mmss(3725), "1:02:05")
 
     def test_tile_grid_columns_follow_width(self):
-        self.assertEqual(ui.grid_cols(8, 768), 4)
+        self.assertEqual(ui.grid_cols(8, 768), 4)                    # 4 + 4: two rows of the biggest tiles
         self.assertEqual(ui.grid_cols(2, 768), 2)
+
+    def test_tiles_never_overflow_into_the_text_below_them(self):
+        old = ui.W
+        try:
+            for width in (768, 1024):
+                ui.set_canvas(width)
+                for n in range(1, 16):
+                    m = ui.tile_layout(n)
+                    top = ui.SY + 70
+                    bottom = top + m["rows"] * (m["th"] + m["gap"]) - m["gap"]
+                    self.assertLessEqual(bottom, ui.H - ui.SY - 110 + 70 if n <= 12 else 10_000, (width, n))
+                    self.assertGreaterEqual(m["cols"] * m["rows"], n)
+                self.assertEqual(ui.tile_layout(9)["rows"], 2, width)                  # the nine apps fit two rows on either screen shape
+                self.assertEqual(ui.tile_layout(9)["rows"] * ui.tile_layout(9)["cols"] >= 9, True)
+        finally:
+            ui.set_canvas(old)
+
+    def test_the_edge_margin_is_a_percentage_that_follows_the_window_shape(self):
+        old_w, old_pct = ui.W, ui.SAFE_PCT
+        try:
+            ui.set_canvas(768)
+            ui.set_safe(7)
+            self.assertEqual((ui.SX, ui.SY), (54, 40))
+            ui.set_safe(12)
+            self.assertEqual((ui.SX, ui.SY), (92, 69))
+            ui.set_canvas(1024)
+            self.assertEqual((ui.SX, ui.SY), (123, 69))                                # still 12% of the wider canvas
+            ui.set_safe(99)
+            self.assertEqual(ui.SAFE_PCT, 15)                                          # capped: it can never push everything off screen
+            ui.set_safe(-5)
+            self.assertEqual((ui.SX, ui.SY), (0, 0))
+        finally:
+            ui.set_canvas(old_w)
+            ui.set_safe(old_pct)
 
 
 class ImageTests(unittest.TestCase):

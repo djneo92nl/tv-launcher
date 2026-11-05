@@ -5,15 +5,25 @@ import datetime
 import textwrap
 
 W, H = 768, 576
-SX, SY = 54, 40
+SAFE_PCT = 7                      # how much of each edge a TV may hide (overscan): a percentage of the canvas, see set_safe()
+SX, SY = 54, 40                   # the same margin in canvas units (7% of 768 x 576); kept up to date by set_canvas / set_safe
 
 BG, AMBER, WHITE = "&H180C04&", "&H40D0FF&", "&HFFFFFF&"
+RED = "&H5050FF&"
 GREY, DIM, HILITE, LINE, WARN = "&HC0C0C0&", "&H909090&", "&H603018&", "&H806040&", "&H80C0FF&"
+
+
+def set_safe(percent):
+    """How far from each edge things are drawn, as a percentage of the canvas (0 to 15). Some TVs and monitors crop the picture; raise it until nothing is cut off."""
+    global SAFE_PCT, SX, SY
+    SAFE_PCT = max(0, min(15, float(percent)))
+    SX, SY = round(W * SAFE_PCT / 100), round(H * SAFE_PCT / 100)
 
 
 def set_canvas(width):
     global W
     W = int(width)
+    set_safe(SAFE_PCT)
 
 
 def esc(s):
@@ -186,32 +196,43 @@ def icon(x, y, name, px=PX):
     return out
 
 
-TILE_W, TILE_H, GAP = 144, 150, 16
+# tile size, gap, icon pixel size, label size: the largest that fits every tile in the space under the header and above the description
+TILE_SIZES = ((128, 134, 14, 5, 18), (112, 120, 12, 5, 16), (100, 108, 10, 4, 15), (88, 96, 8, 4, 14))
+
+
+def tile_layout(n, width=None, height=None):
+    """{tw, th, gap, px, font, cols, rows} for n tiles on a canvas: tiles shrink, never overflow into the description and hint lines."""
+    width, height = width or W, height or H
+    avail_w, avail_h = width - 2 * SX, height - 2 * SY - 70 - 110
+    for tw, th, gap, px, font in TILE_SIZES:
+        cols = max(1, min(n, (avail_w + gap) // (tw + gap)))
+        rows = -(-max(n, 1) // cols)
+        if rows * (th + gap) - gap <= avail_h:
+            break
+    return {"tw": tw, "th": th, "gap": gap, "px": px, "font": font, "cols": cols, "rows": rows}
 
 
 def grid_cols(n, width=None):
-    return max(1, min(n, ((width or W) - 2 * SX + GAP) // (TILE_W + GAP)))
+    return tile_layout(n, width)["cols"]
 
 
 def tile_grid(tiles, sel, confirm_id=None):
     """tiles: [{id, name, icon}]. Returns (ass lines, columns). Numbered 1-9, the selected one framed in amber."""
     n = len(tiles)
-    cols = grid_cols(n)
-    rows = (n + cols - 1) // cols
-    gx0 = (W - (cols * TILE_W + (cols - 1) * GAP)) // 2
-    gy0 = SY + 70 + max(0, (H - 2 * SY - 70 - 120 - rows * TILE_H - (rows - 1) * GAP) // 2)
+    m = tile_layout(n)
+    tw, th, gap, px, cols, rows = m["tw"], m["th"], m["gap"], m["px"], m["cols"], m["rows"]
+    gx0 = (W - (cols * tw + (cols - 1) * gap)) // 2
+    gy0 = SY + 70 + max(0, (H - 2 * SY - 70 - 110 - rows * th - (rows - 1) * gap) // 2)
     out = []
     for i, e in enumerate(tiles):
-        x, y, on = gx0 + (i % cols) * (TILE_W + GAP), gy0 + (i // cols) * (TILE_H + GAP), i == sel
-        out.append(rect(x, y, x + TILE_W, y + TILE_H, HILITE if on else "&H281810&", "40" if on else "30"))
+        x, y, on = gx0 + (i % cols) * (tw + gap), gy0 + (i // cols) * (th + gap), i == sel
+        out.append(rect(x, y, x + tw, y + th, HILITE if on else "&H281810&", "40" if on else "30"))
         if on:
-            out += [rect(x, y, x + TILE_W, y + 3, AMBER), rect(x, y + TILE_H - 3, x + TILE_W, y + TILE_H, AMBER),
-                    rect(x, y, x + 3, y + TILE_H, AMBER), rect(x + TILE_W - 3, y, x + TILE_W, y + TILE_H, AMBER)]
-        out += icon(x + (TILE_W - 16 * PX) // 2, y + 10, e.get("icon") or e["id"])
-        out.append(text(x + TILE_W // 2, y + TILE_H - 34, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:14], 19,
-                        AMBER if on else WHITE, an=8, border=1))
+            out += [rect(x, y, x + tw, y + 3, AMBER), rect(x, y + th - 3, x + tw, y + th, AMBER), rect(x, y, x + 3, y + th, AMBER), rect(x + tw - 3, y, x + tw, y + th, AMBER)]
+        out += icon(x + (tw - 16 * px) // 2, y + 8, e.get("icon") or e["id"], px)
+        out.append(text(x + tw // 2, y + th - m["font"] - 12, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:max(8, tw // 9)], m["font"], AMBER if on else WHITE, an=8, border=1))
         if i < 10:
-            out.append(text(x + 10, y + 8, str((i + 1) % 10), 16, AMBER if on else DIM, border=1))
+            out.append(text(x + 8, y + 6, str((i + 1) % 10), 14, AMBER if on else DIM, border=1))
     return out, cols
 
 

@@ -9,8 +9,9 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 
-from tvkit import ui
+from tvkit import control, ui
 from tvkit.shell import Shell, run_app
 
 THROTTLE_BITS = {0: "UNDER-VOLTAGE NOW", 1: "ARM FREQUENCY CAPPED", 2: "THROTTLED", 3: "SOFT TEMPERATURE LIMIT",
@@ -104,11 +105,31 @@ def gather():
     return rows
 
 
+BUTTONS = {"pair": "PAIR A PHONE", "restart": "RESTART", "poweroff": "SHUT DOWN"}
+
+
 class Info(Shell):
     name = "info"
 
     def start(self):
         self.rows, self.at = gather(), 0
+        self.offered, self.sel, self.note = [], 0, ""
+        threading.Thread(target=self._ask_launcher, daemon=True, name="info-actions").start()
+
+    def _ask_launcher(self):
+        """Which actions the launcher offers on this machine. Empty when this app was started by hand (no launcher to ask)."""
+        st = control.ask("launcher", {"cmd": "status"}).get("status") or {}
+        self.later(lambda: setattr(self, "offered", [a for a in ("pair", "restart", "poweroff") if a in st.get("actions", [])]))
+
+    def handle(self, cmd):
+        if self.offered and cmd in ("left", "right", "up", "down"):
+            self.sel = (self.sel + (1 if cmd in ("right", "down") else -1)) % len(self.offered)
+        elif self.offered and cmd == "enter":
+            action = self.offered[self.sel]
+            r = control.ask("launcher", {"cmd": "do", "action": action}, timeout=4)
+            self.note = "" if r.get("ok") else "Not available right now"          # when it works the launcher takes the screen over
+        else:
+            super().handle(cmd)
 
     def status(self):
         st = super().status()
@@ -122,10 +143,21 @@ class Info(Shell):
     def draw(self, now):
         out = [ui.background()] + ui.header("THIS DEVICE")
         for i, (label, value, level) in enumerate(self.rows):
-            y = ui.SY + 64 + i * 46
-            out.append(ui.text(ui.SX + 4, y + 6, label, 18, ui.DIM, border=1))
-            out.append(ui.text(ui.SX + 200, y, ui.esc(value), 26, ui.WARN if level else ui.WHITE, border=1))
-        return "\n".join(out + ui.footer("Q back to the menu"))
+            y = ui.SY + 62 + i * 36
+            out.append(ui.text(ui.SX + 4, y + 6, label, 16, ui.DIM, border=1))
+            out.append(ui.text(ui.SX + 190, y, ui.esc(value), 24, ui.WARN if level else ui.WHITE, border=1))
+        if self.offered:
+            n, gap = len(self.offered), 14
+            bw = min(200, (ui.W - 2 * ui.SX - gap * (n - 1)) // n)
+            x0, y0 = (ui.W - (n * bw + (n - 1) * gap)) // 2, ui.H - ui.SY - 100
+            for i, a in enumerate(self.offered):
+                x, on = x0 + i * (bw + gap), i == self.sel
+                out.append(ui.rect(x, y0, x + bw, y0 + 46, ui.HILITE if on else "&H281810&", "40" if on else "30"))
+                if on:
+                    out += [ui.rect(x, y0, x + bw, y0 + 3, ui.AMBER), ui.rect(x, y0 + 43, x + bw, y0 + 46, ui.AMBER)]
+                out.append(ui.text(x + bw // 2, y0 + 14, BUTTONS[a], 17, (ui.RED if a == "poweroff" else ui.AMBER) if on else ui.WHITE, an=8, border=1))
+        hint = "LEFT/RIGHT pick   ENTER do it   Q back to the menu" if self.offered else "Q back to the menu"
+        return "\n".join(out + ui.footer(hint, self.note))
 
 
 if __name__ == "__main__":

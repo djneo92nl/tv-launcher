@@ -6,6 +6,7 @@ The socket is a Unix socket, mode 0600, in a private folder (mode 0700): only th
     {"cmd": "text", "text": "blue hour"}  # typed into an on-screen keyboard (printable ASCII, up to 64 characters)
     {"cmd": "status"}                     # -> {"ok": true, "status": {...}} what the app shows (see Shell.status)
     {"cmd": "quit"}                       # leave the app (back to the launcher)
+    {"cmd": "do", "action": "pair"}       # ask the socket's owner to do one of the actions it offers (the launcher: pair, restart, poweroff)
 
 Nothing here can run code or read files: the vocabulary is closed.
 """
@@ -143,6 +144,14 @@ class ControlServer:
         if cmd == "quit":
             self.shell.q.put(("cmd", "quit"))
             return {"ok": True}
+        if cmd == "do":
+            action, offered = req.get("action"), getattr(self.shell, "actions", ())
+            if not isinstance(action, str) or action not in offered:
+                return {"ok": False, "error": "no such action"}
+            try:
+                return {"ok": bool(self.shell.do_action(action))}
+            except Exception:
+                return {"ok": False, "error": "action failed"}
         return {"ok": False, "error": "unknown command"}
 
 

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -20,7 +21,7 @@ def make(web_on=True):
     os.environ["TVL_SETTINGS"] = os.path.join(d, "settings.json")
     cfg = {"prof": {}, "cache_dir": d, "profile": "pi", "web": {"enabled": web_on}}
     lcfg = launcher.load_launcher_config("/nonexistent")
-    entries = launcher.build_entries(lcfg, discover=True, web=web_on)
+    entries = launcher.build_entries(lcfg, discover=True)
     L = launcher.Launcher(cfg, lcfg, os.path.join(d, "state.json"), entries)
     L.config_path, L.launcher_path = os.path.join(support.ROOT, "config.json"), os.path.join(d, "launcher.json")
     L.catalog = launcher.all_apps(lcfg)
@@ -50,17 +51,13 @@ def screen(L):
 
 
 class TileTests(unittest.TestCase):
-    def test_remote_tile_comes_before_the_system_actions_and_only_with_the_web_on(self):
+    def test_the_menu_holds_only_apps_not_remote_restart_or_shut_down(self):
         lcfg = launcher.load_launcher_config("/nonexistent")
-        on = [e["id"] for e in launcher.build_entries(lcfg, discover=True, web=True)]
-        off = [e["id"] for e in launcher.build_entries(lcfg, discover=True, web=False)]
-        self.assertIn("remote", on)
-        self.assertNotIn("remote", off)
-        self.assertEqual(next(e for e in launcher.build_entries(lcfg, discover=True, web=True) if e["id"] == "remote")["kind"], "internal")
-        if "reboot" in on:
-            self.assertLess(on.index("remote"), on.index("reboot"))
-        else:
-            self.assertEqual(on[-1], "remote")                                       # no system tiles on a Mac: REMOTE is last
+        entries = launcher.build_entries(lcfg, discover=True)
+        self.assertEqual({e["kind"] for e in entries}, {"app"})
+        for gone in ("remote", "reboot", "poweroff"):
+            self.assertNotIn(gone, [e["id"] for e in entries])
+        self.assertLessEqual(len(entries), 9)                                           # fits two rows of tiles
 
     def test_screens_show_the_address_the_code_and_the_question(self):
         out = launcher.pair_screen("http://192.168.1.5:8090", "482913", 125, 2)
@@ -129,9 +126,9 @@ class ReloadTests(unittest.TestCase):
 
 class MenuLoopTests(unittest.TestCase):
     def pick_remote(self, L):
-        L.q.put(("cmd", "digit:%d" % ([e["id"] for e in L.entries].index("remote") + 1)))
+        self.assertTrue(L.do_action("pair"))                                              # what THIS PI asks for over the control socket
 
-    def test_remote_tile_shows_a_pin_and_a_good_pairing_returns_to_the_menu(self):
+    def test_pair_action_shows_a_pin_and_a_good_pairing_returns_to_the_menu(self):
         L = make()
         L.setup_web(True, 0, L.config_path, L.launcher_path)
         self.addCleanup(L.web.stop)
@@ -204,21 +201,39 @@ class MenuLoopTests(unittest.TestCase):
         L.q.put(("cmd", "back"))
         t.join(3)
 
-    def test_without_the_web_interface_the_tile_is_absent_and_a_busy_port_is_reported(self):
+    def test_without_the_web_interface_pairing_is_not_offered_and_a_busy_port_is_reported(self):
         L = make(web_on=False)
         L.setup_web(False, 8090, L.config_path, L.launcher_path)
-        self.assertNotIn("remote", [e["id"] for e in L.entries])
+        self.assertFalse(L.do_action("pair"))
         busy = make()
         first = web.WebServer(busy, port=0, bind="0.0.0.0")        # the same address the launcher binds, so the port really is taken
         self.addCleanup(first.stop)
-        busy.setup_web(True, first.port, busy.config_path, busy.launcher_path)           # that port is taken
+        busy.setup_web(True, first.port, busy.config_path, busy.launcher_path)
         self.assertIsNone(busy.web)
         self.assertIn("could not start", busy.web_error)
+
+    def test_actions_offered_depend_on_the_machine_and_restart_asks_on_the_tv_first(self):
+        L = make()
+        L.reload()
+        self.assertEqual(L.actions[0], "pair")
+        self.assertEqual(set(L.actions) - {"pair"}, {"restart", "poweroff"} if sys.platform.startswith("linux") else set())
+        self.assertFalse(L.do_action("format-the-disk"))
+        L.lcfg["system"] = []
+        self.assertEqual(L.actions, ("pair",))
+        L.lcfg = json.loads(json.dumps(launcher.DEFAULT_CONFIG))
+        ran = []
+        L.system = lambda action: ran.append(action)
+        self.assertTrue(L.do_action("restart"))
+        item = L.confirms.current()
+        self.assertEqual(item["title"], "Restart this device?")
+        self.assertEqual(ran, [])                                                         # nothing happens until ENTER on the TV
+        L.confirms.answer(item["id"], True)
+        self.assertTrue(wait_for(lambda: ran == ["restart"]))
 
     def test_system_action_without_such_an_entry_is_a_noop(self):
         L = make()
         L.reload()
-        L.entries = [e for e in L.entries if e["id"] not in ("reboot", "poweroff")]
+        L.lcfg["system"] = []
         L.system("poweroff")                                                              # no crash, nothing started
 
 

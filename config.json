@@ -227,5 +227,8 @@
   "web": {
     "enabled": true,
     "port": 8090
+  },
+  "display": {
+    "safe_percent": 7
   }
 }

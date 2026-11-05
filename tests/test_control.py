@@ -70,6 +70,21 @@ class ControlServerTests(unittest.TestCase):
         control.ask("ctltest", {"cmd": "quit"})
         self.assertEqual(self.drain(), [("cmd", "quit")])
 
+    def test_do_runs_only_actions_the_owner_offers(self):
+        done = []
+        self.shell.actions = ("pair", "restart")
+        self.shell.do_action = lambda name: done.append(name) or name == "pair"
+        self.assertEqual(control.ask("ctltest", {"cmd": "do", "action": "pair"}), {"ok": True})
+        self.assertEqual(control.ask("ctltest", {"cmd": "do", "action": "restart"}), {"ok": False})           # offered, but it said no
+        for bad in ("poweroff", "rm -rf", "", None, 5, ["pair"], {"a": 1}):
+            self.assertFalse(control.ask("ctltest", {"cmd": "do", "action": bad})["ok"], bad)
+        self.assertEqual(done, ["pair", "restart"])
+        self.shell.do_action = lambda name: 1 / 0
+        self.assertEqual(control.ask("ctltest", {"cmd": "do", "action": "pair"}), {"ok": False, "error": "action failed"})
+
+    def test_an_app_that_offers_nothing_refuses_every_action(self):
+        self.assertFalse(control.ask("ctltest", {"cmd": "do", "action": "pair"})["ok"])
+
     def test_garbage_and_oversized_requests_are_refused_and_the_server_survives(self):
         for data in (b"not json\n", b"[1,2]\n", b'{"cmd":"exec","code":"x"}\n', b'{"cmd":5}\n', b"\n"):
             self.assertFalse(raw(self.srv.path, data)["ok"], data[:20])
@@ -166,6 +181,41 @@ class ShellIntegrationTests(unittest.TestCase):
         self.assertFalse(t.is_alive())
         self.assertEqual(A.got, ["down", "char:h", "char:i", "quit"])
         self.assertFalse(os.path.exists(control.socket_path("ctl-integ")))
+
+
+class InfoButtonsTests(unittest.TestCase):
+    def info(self, offered):
+        s = fake_shell(load_app("info").Info)
+        s.start = lambda: None
+        s.rows, s.at, s.offered, s.sel, s.note = [("ADDRESS", "10.0.0.2", 0)], 1e12, offered, 0, ""
+        return s
+
+    def test_buttons_show_only_what_the_launcher_offers_and_enter_asks_for_it(self):
+        import unittest.mock as mock
+        asked = []
+        s = self.info(["pair", "restart", "poweroff"])
+        with mock.patch.object(control, "ask", lambda name, req, timeout=2.0: asked.append((name, req)) or {"ok": True}):
+            out = s.draw(0)
+            for label in ("PAIR A PHONE", "RESTART", "SHUT DOWN"):
+                self.assertIn(label, out)
+            press(s, "right", "enter")
+            self.assertEqual(asked, [("launcher", {"cmd": "do", "action": "restart"})])
+            press(s, "left", "left", "enter")                                            # wraps round to the last button
+            self.assertEqual(asked[-1][1]["action"], "poweroff")
+        self.assertNotIn("RESTART", self.info(["pair"]).draw(0))
+
+    def test_started_by_hand_there_are_no_buttons_and_enter_does_nothing(self):
+        s = self.info([])
+        self.assertNotIn("SHUT DOWN", s.draw(0))
+        press(s, "enter")
+        self.assertFalse(s.stopping)
+
+    def test_a_refusal_is_said_not_ignored(self):
+        import unittest.mock as mock
+        s = self.info(["pair"])
+        with mock.patch.object(control, "ask", lambda name, req, timeout=2.0: {"ok": False}):
+            press(s, "enter")
+        self.assertIn("Not available", s.draw(0))
 
 
 class AppStatusTests(unittest.TestCase):

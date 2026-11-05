@@ -85,7 +85,7 @@ function pairView() {
   const name = el('input', {type: 'text', maxlength: '40', value: guessName()});
   return el('main', {},
     el('h1', {}, 'Pair this phone'),
-    el('p', {class: 'muted'}, 'On the TV open REMOTE, then type the 6-digit code it shows.'),
+    el('p', {class: 'muted'}, 'On the TV open THIS PI and choose PAIR A PHONE, then type the 6-digit code it shows.'),
     el('div', {class: 'field'}, el('label', {}, 'Code'), pin),
     el('div', {class: 'field'}, el('label', {}, 'Name of this phone'), name),
     el('button', {class: 'btn primary', onclick: act(async () => {

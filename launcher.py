@@ -145,21 +145,9 @@ def order_apps(apps, cfg):
     return ranked + [a for a in rest if a["id"] not in first]
 
 
-REMOTE_ENTRY = {"id": "remote", "name": "REMOTE", "desc": "Control this TV from your phone, change settings", "icon": "remote", "kind": "internal", "cmd": ["-"]}
-
-
-def build_entries(cfg, discover=False, web=False):
-    """The menu: installed apps first, then REMOTE (when the web interface is on), then the system actions.
-    Each entry gets a `kind` of "app", "internal" (handled by the launcher itself) or "system"."""
-    out = order_apps(all_apps(cfg, discover), cfg)
-    if web:
-        out.append(dict(REMOTE_ENTRY))
-    for e in cfg.get("system", []):
-        if e.get("id") and e.get("name") and e.get("cmd") and app_available(e):
-            out.append({**e, "kind": "system"})
-    if not sys.platform.startswith("linux"):
-        out = [e for e in out if e["kind"] != "system"]       # no reboot / shutdown buttons on a Mac
-    return out
+def build_entries(cfg, discover=False):
+    """The menu tiles: the apps, hidden ones left out, in order. (Pairing a phone, restart and shut down are not tiles: they are buttons in THIS PI.)"""
+    return order_apps(all_apps(cfg, discover), cfg)
 
 
 def expand(cmd, profile):
@@ -292,6 +280,7 @@ class Launcher(Shell):
         self.pending = None                     # an app id someone (the web interface) asked to start next
         self.menu = None
         self.lock = threading.Lock()
+        self.want_pair = False                  # THIS PI asked for the pairing screen
         self.mpv_failed = False                 # mpv kept dying and we gave up: exit with an error so systemd (and you) can tell
         self.web, self.web_error = None, None
         self.pairing, self.confirms = webmod.Pairing(), webmod.Confirmations()
@@ -323,6 +312,7 @@ class Launcher(Shell):
         st["app"], st["running"] = "launcher", ({"id": a["id"], "name": a["name"]} if a else None)
         st["screen"] = "MENU"
         st["selected"] = self.menu.current()["id"] if self.menu and self.menu.current() else None
+        st["actions"] = list(self.actions)
         return st
 
     def request_start(self, app_id):
@@ -365,13 +355,32 @@ class Launcher(Shell):
     def start_app(self, app_id):
         return self.request_start(app_id)
 
+    @property
+    def actions(self):
+        """What other programs (THIS PI) may ask for over the control socket: pairing always, restart / shut down where this machine can."""
+        can = sys.platform.startswith("linux") and any(e.get("id") in ("reboot", "poweroff") for e in self.lcfg.get("system", []))
+        return ("pair", "restart", "poweroff") if can else ("pair",)
+
+    def do_action(self, name):
+        if name == "pair":
+            if not self.web:
+                return False
+            self.want_pair = True                                  # the menu opens the pairing screen as soon as it is back on screen
+            self.bring_home()
+            return True
+        if name in ("restart", "poweroff"):
+            label = "Restart" if name == "restart" else "Shut down"
+            self.confirm(f"{label} this device?", ["Asked on this screen (THIS PI)."], lambda: self.system(name))
+            return True
+        return False
+
     def settings_values(self):
         cfg = config.load(self.config_path, self.cfg["profile"])
         lcfg = load_launcher_config(self.launcher_path)
         return {f["key"]: settings.effective(cfg, lcfg, f["key"]) for f in settings.SCHEMA}
 
     def settings_changed(self, keys):
-        if any(k.startswith("launcher.") for k in keys):
+        if any(k.startswith(("launcher.", "display.")) for k in keys):
             self.reload_flag = True                      # the menu loop rebuilds itself on its next turn (this is called from a web thread)
             self.q.put(("app", ("wake", None)))
 
@@ -380,7 +389,8 @@ class Launcher(Shell):
         self.lcfg = load_launcher_config(self.launcher_path)
         SEARCH_DIRS[:] = [os.path.expanduser(x) for x in self.lcfg.get("search_dirs", [])]
         self.catalog = all_apps(self.lcfg)
-        self.entries = build_entries(self.lcfg, discover=True, web=self.web is not None)
+        self.entries = build_entries(self.lcfg, discover=True)
+        self.cfg = config.load(self.config_path, self.cfg["profile"])              # display margin and other settings the web page changed
         self.reload_flag = False
 
     def repositories(self):
@@ -408,8 +418,8 @@ class Launcher(Shell):
         return cid
 
     def system(self, action):
-        entry = next((e for e in self.entries if e["id"] == {"restart": "reboot", "poweroff": "poweroff"}[action]), None)
-        if not entry:
+        entry = next((e for e in self.lcfg.get("system", []) if e["id"] == {"restart": "reboot", "poweroff": "poweroff"}[action]), None)
+        if not entry or not sys.platform.startswith("linux"):
             log.warning("%s was confirmed but this platform has no such action", action)
             return
         log.info("system action: %s", action)
@@ -450,6 +460,11 @@ class Launcher(Shell):
             while not self.stopping:
                 ev = self.next_event(0.25)
                 now = time.time()
+                if self.want_pair:                                  # THIS PI (or anything else) asked for the pairing screen
+                    self.want_pair = False
+                    if self.web:
+                        self.pairing.open()
+                        pairing_until, paired_msg, deadline = now + webmod.PIN_TTL_S, None, None
                 if self.reload_flag:
                     sel = menu.current()["id"] if menu.current() else None
                     self.reload()
@@ -471,13 +486,7 @@ class Launcher(Shell):
                             self.pairing.close()
                     else:
                         chosen = menu.handle(ev[1])
-                        if chosen and chosen["kind"] == "internal":
-                            if self.web:
-                                self.pairing.open()
-                                pairing_until, paired_msg = now + webmod.PIN_TTL_S, None
-                            else:
-                                menu.note = self.web_error or "The web interface is switched off"
-                        elif chosen:
+                        if chosen:
                             return chosen
                 elif ev and ev[0] == "app" and ev[1][0] == "start":
                     chosen = self.take_pending()

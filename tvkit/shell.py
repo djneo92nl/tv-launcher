@@ -68,6 +68,11 @@ class Shell:
         self.stopping = True
         self.exit_code = code
 
+    actions = ()                                  # actions other programs may ask this one to do over its control socket (the launcher offers some)
+
+    def do_action(self, name):
+        return False
+
     def status(self):
         """What the web interface shows about this app. Apps override it (and call super()) to add what they are showing or playing.
         Called from another thread: build the dict from plain values and do not touch mpv."""
@@ -88,6 +93,7 @@ class Shell:
 
     # ---- the screen ----
     def open_screen(self):
+        ui.set_safe((self.cfg.get("display") or {}).get("safe_percent", 7))      # some screens crop the edges: the margin is a setting
         prof = self.cfg["prof"]
         argv = [a for a in prof["mpv"] if not a.startswith(("--volume=", "--mute="))] + list(self.mpv_args)
         self.mpv = Mpv(argv, dict(inputs.KEY_BINDINGS), mono=bool(prof.get("mono")), log_dir=self.cfg["cache_dir"])

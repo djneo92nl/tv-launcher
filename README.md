@@ -60,7 +60,7 @@ also marked as untested for some boards.
 
 ## Web interface (phone remote, settings)
 
-Open **REMOTE** on the TV, then the address and 6-digit code it shows on your phone. You get a remote (with a text box that types into the on-screen keyboards), the list of apps (start, hide),
+On the TV open **THIS PI** and choose **PAIR A PHONE**, then type the address and 6-digit code it shows on your phone. You get a remote (with a text box that types into the on-screen keyboards), the list of apps (start, hide),
 a settings page, and Restart / Shut down. Changes are saved to `~/.config/tv-launcher/settings.json`, merged over `config.json`. Restart and shut down ask for OK on the TV first.
 Security model, API and limits (no TLS): [docs/WEB.md](docs/WEB.md). Apps get a small control socket for free (`tvkit/control.py`) and can report what they show by overriding `Shell.status()`.
 Each app also has an `app.json` manifest (`tvkit/manifest.py`); the launcher discovers built-in apps and, later, installed ones from it.

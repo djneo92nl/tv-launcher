@@ -40,6 +40,7 @@ SCHEMA = [
     field("launcher.remember_last", "Menu opens on the app you used last", "bool", True, "Menu"),
     field("launcher.hidden", "Hidden apps", "applist", [], "Menu", help="Apps left out of the menu (they stay installed)."),
     field("launcher.order", "App order", "applist", [], "Menu", help="Apps listed here come first, in this order."),
+    field("display.safe_percent", "Screen edge margin (%)", "int", 7, "Display", min=0, max=15, help="Raise it if your screen cuts off the edges of the picture."),
     field("clock.h24", "24-hour clock", "bool", True, "Clock"),
     field("clock.seconds", "Show seconds", "bool", False, "Clock"),
     field("photos.dirs", "Photo folders", "paths", ["~/Pictures", "/media", "/mnt"], "Photos", help="USB sticks under /media and /mnt are found automatically."),

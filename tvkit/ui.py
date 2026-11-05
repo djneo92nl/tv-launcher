@@ -265,20 +265,29 @@ class GridView:
 
 # ---- on-screen keyboard (for a remote with only arrows and OK) ----
 KEY_ROWS = ["abcdefghij", "klmnopqrst", "uvwxyz0123", "456789'.-&"]
+KEY_ROWS_FULL = KEY_ROWS + ["!@#$%^*()_", "+=?/:;,~<>"]          # for passwords and addresses
 KEY_ACTIONS = ["SPACE", "DELETE", "CLEAR", "SEARCH"]
 
 
 class Keyboard:
-    """Letters in a grid plus an action row. handle(cmd) returns "submit" when SEARCH is pressed; typed letters (char:x, backspace) work too."""
+    """Letters in a grid plus an action row. handle(cmd) returns "submit" when the last action is pressed; typed letters (char:x, backspace) work too.
+    full=True adds symbol rows and a SHIFT key; secret=True shows dots instead of the text; `submit_label` names the last action (SEARCH, LOGIN, NEXT)."""
 
-    def __init__(self, text=""):
-        self.text, self.r, self.c = text, 0, 0
+    def __init__(self, text="", full=False, secret=False, submit_label="SEARCH"):
+        self.text, self.r, self.c, self.secret = text, 0, 0, secret
+        self.rows = KEY_ROWS_FULL if full else KEY_ROWS
+        self.actions = (["SPACE", "SHIFT", "DELETE", "CLEAR", submit_label] if full else ["SPACE", "DELETE", "CLEAR", submit_label])
+        self.shift = False
 
     def _row_len(self, r):
-        return len(KEY_ACTIONS) if r == len(KEY_ROWS) else len(KEY_ROWS[r])
+        return len(self.actions) if r == len(self.rows) else len(self.rows[r])
+
+    def _key(self, r, c):
+        ch = self.rows[r][c]
+        return ch.upper() if self.shift else ch
 
     def handle(self, cmd):
-        last = len(KEY_ROWS)
+        last = len(self.rows)
         if cmd == "up":
             self.r = (self.r - 1) % (last + 1)
         elif cmd == "down":
@@ -289,11 +298,13 @@ class Keyboard:
             self.c = (self.c + 1) % self._row_len(self.r)
         elif cmd == "enter":
             if self.r < last:
-                self.text += KEY_ROWS[self.r][min(self.c, 9)]
+                self.text += self._key(self.r, self.c)
             else:
-                act = KEY_ACTIONS[min(self.c, len(KEY_ACTIONS) - 1)]
+                act = self.actions[min(self.c, len(self.actions) - 1)]
                 if act == "SPACE":
                     self.text += " "
+                elif act == "SHIFT":
+                    self.shift = not self.shift
                 elif act == "DELETE":
                     self.text = self.text[:-1]
                 elif act == "CLEAR":
@@ -311,19 +322,20 @@ class Keyboard:
         return "changed"
 
     def draw(self, y0=SY + 110):
-        out = [rect(SX, y0 - 52, W - SX, y0 - 8, "&H281810&"), text(SX + 14, y0 - 44, esc(self.text) + "_", 28, border=1)]
-        cell = min(54, (W - 2 * SX) // 10)
+        shown = "*" * len(self.text) if self.secret else esc(self.text)
+        cell = min(54, (W - 2 * SX) // 10, (H - y0 - 90) // (len(self.rows) + 1))
+        out = [rect(SX, y0 - 52, W - SX, y0 - 8, "&H281810&"), text(SX + 14, y0 - 44, shown + "_", 28, border=1)]
         x0 = (W - cell * 10) // 2
-        for r, row in enumerate(KEY_ROWS):
+        for r, row in enumerate(self.rows):
             for c, ch in enumerate(row):
                 on = (r, c) == (self.r, self.c)
                 x, y = x0 + c * cell, y0 + r * cell
                 out.append(rect(x + 2, y + 2, x + cell - 2, y + cell - 2, HILITE if on else "&H281810&", "40" if on else "30"))
-                out.append(text(x + cell // 2, y + cell // 2, ch.upper(), 24, AMBER if on else WHITE, an=5, border=1))
-        ay, aw = y0 + len(KEY_ROWS) * cell + 8, (cell * 10) // len(KEY_ACTIONS)
-        for c, name in enumerate(KEY_ACTIONS):
-            on = (len(KEY_ROWS), c) == (self.r, self.c)
+                out.append(text(x + cell // 2, y + cell // 2, esc(self._key(r, c)), 22, AMBER if on else WHITE, an=5, border=1))
+        ay, aw = y0 + len(self.rows) * cell + 8, (cell * 10) // len(self.actions)
+        for c, name in enumerate(self.actions):
+            on = (len(self.rows), c) == (self.r, self.c)
             x = x0 + c * aw
-            out.append(rect(x + 2, ay, x + aw - 2, ay + 40, HILITE if on else "&H281810&", "40" if on else "30"))
-            out.append(text(x + aw // 2, ay + 20, name, 18, AMBER if on else WHITE, an=5, border=1))
+            out.append(rect(x + 2, ay, x + aw - 2, ay + 38, HILITE if on else "&H281810&", "40" if on else "30"))
+            out.append(text(x + aw // 2, ay + 19, name + (" *" if name == "SHIFT" and self.shift else ""), 17, AMBER if on else WHITE, an=5, border=1))
         return out

@@ -79,7 +79,7 @@ class Playback:
             mpv.command("observe_property", oid, prop)
 
     # ---- control ----
-    def start(self, url, title, key=None, audio_only=None, resume=True):
+    def start(self, url, title, key=None, audio_only=None, resume=True, start_at=None):
         if self.active:
             self.save()
         if audio_only is not None:
@@ -87,7 +87,7 @@ class Playback:
         self.title, self.key, self.active = title, key, True
         self.pos = self.dur = None
         self.paused = False
-        at = self.positions.resume_at(key) if (resume and self.positions and key) else None
+        at = start_at if start_at else (self.positions.resume_at(key) if (resume and self.positions and key) else None)
         self.mpv.play(url, start=at or 0)
         if at:
             self.say("RESUMED AT " + ui.mmss(at))

@@ -16,7 +16,7 @@ from tvkit.net import NetError
 from tvkit.player import Playback
 from tvkit.shell import Shell, run_app
 
-import client as rm
+import remoment_client as rm
 
 HOME = [("albums", "ALBUMS", "Every album in your own files"), ("artists", "ARTISTS", "A to Z"), ("playlists", "PLAYLISTS", "Your playlists"),
         ("recent", "RECENTLY PLAYED", "Albums you listened to lately"), ("favourites", "FAVOURITES", "Albums, artists and tracks you hearted"),

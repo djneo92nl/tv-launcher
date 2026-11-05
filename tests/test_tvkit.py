@@ -167,7 +167,7 @@ class GridKeyboardTests(unittest.TestCase):
         self.assertEqual(k.text, "abz q")
         k.handle("backspace")
         self.assertEqual(k.text, "abz ")
-        k.r, k.c = len(ui.KEY_ROWS), 1                                      # DELETE
+        k.r, k.c = len(k.rows), 1                                      # DELETE
         k.handle("enter")
         self.assertEqual(k.text, "abz")
         k.c = 2                                                              # CLEAR
@@ -183,6 +183,23 @@ class GridKeyboardTests(unittest.TestCase):
         k.c = 9
         k.handle("down"); k.handle("down"); k.handle("down"); k.handle("down")
         self.assertEqual((k.r, k.c), (4, 3))
+
+    def test_full_keyboard_has_shift_symbols_and_hides_secrets(self):
+        k = ui.Keyboard(full=True, secret=True, submit_label="LOGIN")
+        k.handle("enter")
+        k.r, k.c = len(k.rows), 1                                           # SHIFT
+        k.handle("enter")
+        k.r, k.c = 0, 0
+        k.handle("enter")
+        k.r, k.c = 4, 0
+        k.handle("enter")
+        self.assertEqual(k.text, "aA!")
+        out = "\n".join(k.draw())
+        self.assertNotIn("aA!", out)
+        self.assertIn("***_", out)
+        self.assertIn("LOGIN", out)
+        k.r, k.c = len(k.rows), 4
+        self.assertEqual(k.handle("enter"), "submit")
 
     def test_colours(self):
         self.assertEqual(ui.ass_colour("#1b2c3d"), "&H3D2C1B&")

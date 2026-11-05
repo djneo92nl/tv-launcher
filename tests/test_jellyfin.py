@@ -26,6 +26,9 @@ class ClientTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.shutdown()
 
+    def setUp(self):
+        fj.Handler.quick, fj.Handler.quick_polls_needed, fj.Handler.polls = True, 2, 0
+
     def logged_in(self):
         c = jf.Client(self.url, "dev1")
         c.login("kid", "secret")
@@ -78,7 +81,7 @@ class ClientTests(unittest.TestCase):
 
     def test_poster_decodes_and_reports_are_sent(self):
         c = self.logged_in()
-        w, h, _ = images.parse_bmp(c.poster((fj.mid(100), "t1"), 96))
+        w, h, _ = images.parse_image(c.poster((fj.mid(100), "t1"), 96))
         self.assertEqual((w, h), (64, 96))
         c.report_start("abc", 12.5)
         c.report_progress("abc", 20, paused=True)
@@ -93,6 +96,19 @@ class ClientTests(unittest.TestCase):
         c.token = "x"
         c.report_progress("a", 1)                       # a dead server must not stop the film
 
+    def test_quick_connect_calls(self):
+        c = jf.Client(self.url, "dev9")
+        self.assertTrue(c.quick_enabled())
+        secret, code = c.quick_start()
+        self.assertEqual((secret, code), ("sec-1", "482913"))
+        fj.Handler.quick_polls_needed = 2
+        self.assertFalse(c.quick_approved(secret))
+        self.assertTrue(c.quick_approved(secret))
+        s = c.quick_login(secret)
+        self.assertEqual((s["token"], s["user_name"]), (fj.TOKEN, "kid"))
+        fj.Handler.quick = False
+        self.assertFalse(jf.Client(self.url, "d").quick_enabled())
+
     def test_host_is_normalised(self):
         self.assertEqual(jf.normalise_host("nas:8096/"), "http://nas:8096")
         with self.assertRaises(jf.JellyfinError):
@@ -103,6 +119,9 @@ class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.srv, cls.url = fj.serve()
+
+    def setUp(self):
+        fj.Handler.quick, fj.Handler.quick_polls_needed, fj.Handler.polls = True, 2, 0
 
     @classmethod
     def tearDownClass(cls):
@@ -129,6 +148,7 @@ class AppTests(unittest.TestCase):
         press(s, "enter")
 
     def test_first_start_asks_for_name_and_password_then_saves_only_the_token(self):
+        fj.Handler.quick = False
         s = self.make()
         self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "login"))
         self.assertTrue(inputs.TEXT_MODE)
@@ -150,6 +170,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(os.stat(s.path).st_mode & 0o777, 0o600)
 
     def test_wrong_password_returns_to_the_login_with_a_message(self):
+        fj.Handler.quick = False
         s = self.make()
         self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "login"))
         s.user_text = "kid"
@@ -159,12 +180,46 @@ class AppTests(unittest.TestCase):
         self.assertEqual((s.cur.kind, s.cur.step), ("login", 0))
         self.assertFalse(os.path.exists(s.path))
 
+    def test_quick_connect_shows_a_code_and_signs_in_when_it_is_approved(self):
+        fj.Handler.quick_polls_needed = 2
+        s = self.make()
+        self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "quick" and s.cur.code))
+        self.assertEqual(s.cur.code, "482913")
+        self.assertFalse(inputs.TEXT_MODE)
+        self.assertIn("QUICK CONNECT", s.draw(time.time()))
+        self.assertTrue(pump(s, lambda: (setattr(s.cur, "polled", 0) if s.cur.kind == "quick" and not s.cur.busy else None) or s.cur.kind == "home", seconds=8))
+        saved = json.load(open(s.path))
+        self.assertEqual((saved["token"], saved["user_name"]), (fj.TOKEN, "kid"))
+        self.assertTrue(any(p == "/Users/AuthenticateWithQuickConnect" for _, p, _ in fj.Handler.log))
+        self.assertTrue(all("Pw" not in b.decode() for _, p, b in fj.Handler.log if p == "/Users/AuthenticateWithQuickConnect"))
+
+    def test_quick_connect_can_be_swapped_for_a_password_and_back(self):
+        s = self.make()
+        self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "quick" and s.cur.code))
+        press(s, "enter")
+        self.assertEqual(s.cur.kind, "login")
+        self.assertTrue(inputs.TEXT_MODE)
+        press(s, "back")
+        self.assertTrue(pump(s, lambda: s.cur.kind == "quick" and s.cur.code))
+
+    def test_without_quick_connect_the_password_screen_comes_first(self):
+        fj.Handler.quick = False
+        s = self.make()
+        self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "login"))
+
+    def test_an_unapproved_code_is_renewed_after_a_while(self):
+        s = self.make()
+        self.assertTrue(pump(s, lambda: s.cur is not None and s.cur.kind == "quick" and s.cur.code))
+        n = len([1 for _, p, _ in fj.Handler.log if p == "/QuickConnect/Initiate"])
+        s.cur.asked -= 400
+        self.assertTrue(pump(s, lambda: len([1 for _, p, _ in fj.Handler.log if p == "/QuickConnect/Initiate"]) > n))
+
     def test_saved_login_goes_straight_to_home_and_a_revoked_token_asks_again(self):
         s = self.logged_in()
         self.assertEqual([r[1] for r in s.cur.view.items][:4], ["CONTINUE WATCHING", "NEXT UP", "MOVIES", "SHOWS"])
         self.assertNotIn("MUSIC", [r[1] for r in s.cur.view.items])                        # this client plays video
         bad = self.make({"host": self.url, "token": "revoked", "user_id": fj.UID, "user_name": "kid", "device_id": "d1"})
-        self.assertTrue(pump(bad, lambda: bad.cur is not None and bad.cur.kind == "login"))
+        self.assertTrue(pump(bad, lambda: bad.cur is not None and bad.cur.kind == "quick"))      # a revoked token: sign in again
 
     def test_unreachable_server_says_so(self):
         s = self.make(host="http://127.0.0.1:1")

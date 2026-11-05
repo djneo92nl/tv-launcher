@@ -1,6 +1,6 @@
 """Jellyfin REST client (standard library). API: https://api.jellyfin.org (tested on 10.11).
 
-    c = Client("http://192.168.1.142:8096", device_id)
+    c = Client("http://jellyfin.local:8096", device_id)
     c.login("name", "password")            # -> stores token and user id on c; save them with c.session()
     c.views(); c.resume(); c.next_up(); c.items(parent_id); c.seasons(series_id); c.episodes(series_id, season_id)
 
@@ -110,6 +110,34 @@ class Client:
         self.token, self.user_id, self.user_name = d["AccessToken"], d["User"]["Id"], d["User"].get("Name") or user
         return self.session()
 
+    # ---- Quick Connect: a code is shown here, approved in another Jellyfin app, and this client is handed a token ----
+    def quick_enabled(self):
+        try:
+            return net.get_json(self.host + "/QuickConnect/Enabled", headers={"Authorization": self.auth_header()}, timeout=self.timeout) is True
+        except net.NetError:
+            return False
+
+    def quick_start(self):
+        """(secret, code): show the code, keep the secret."""
+        try:
+            d = json.loads(net.request(self.host + "/QuickConnect/Initiate", data=b"", method="POST", headers={"Authorization": self.auth_header()}, timeout=self.timeout) or b"{}")
+        except ValueError:
+            raise JellyfinError("unexpected Quick Connect answer") from None
+        if not d.get("Secret") or not d.get("Code"):
+            raise JellyfinError("Quick Connect is not available")
+        return d["Secret"], d["Code"]
+
+    def quick_approved(self, secret):
+        d = net.get_json(self.host + "/QuickConnect/Connect?" + urlencode({"secret": secret}), headers={"Authorization": self.auth_header()}, timeout=self.timeout)
+        return bool(isinstance(d, dict) and d.get("Authenticated"))
+
+    def quick_login(self, secret):
+        d = net.get_json(self.host + "/Users/AuthenticateWithQuickConnect", data={"Secret": secret}, headers={"Authorization": self.auth_header()}, timeout=self.timeout)
+        if not isinstance(d, dict) or not d.get("AccessToken") or not (d.get("User") or {}).get("Id"):
+            raise JellyfinError("unexpected login answer")
+        self.token, self.user_id, self.user_name = d["AccessToken"], d["User"]["Id"], d["User"].get("Name") or "?"
+        return self.session()
+
     def session(self):
         return {"host": self.host, "token": self.token, "user_id": self.user_id, "user_name": self.user_name, "device_id": self.device_id}
 
@@ -159,9 +187,9 @@ class Client:
 
     # ---- pictures ----
     def poster(self, pic, height):
-        """Raw BMP bytes of a poster scaled to `height` pixels (a multiple of 48 keeps the number of distinct downloads small)."""
+        """PNG bytes of a poster (real servers ignore format=Bmp and send JPEG, which has no stdlib decoder) scaled to `height` pixels (a multiple of 48 keeps the number of distinct downloads small)."""
         item_id, tag = pic
-        q = {"fillHeight": height, "fillWidth": height * 2 // 3, "quality": 85, "format": "Bmp", "tag": tag}
+        q = {"fillHeight": height, "fillWidth": height * 2 // 3, "quality": 85, "format": "Png", "tag": tag}
         return net.request(f"{self.host}/Items/{item_id}/Images/Primary?{urlencode(q)}", headers=self.headers(), timeout=self.timeout, limit=4_000_000)
 
     # ---- playback ----

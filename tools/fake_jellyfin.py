@@ -44,10 +44,22 @@ def bmp24(w, h, seed):
     return b"BM" + struct.pack("<IHHI", 54 + len(rows), 0, 0, 54) + struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, len(rows), 2835, 2835, 0, 0) + rows
 
 
+def png_rgb(w, h, seed):
+    import zlib
+    raw = b"".join(b"\0" + bytes(b for x in range(w) for b in ((x * 255 // w), (seed * 40 + y * 255 // h) % 256, (seed * 90) % 256)) for y in range(h))
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
 class Handler(BaseHTTPRequestHandler):
     log = []                 # (method, path, body)
+    polls = 0
     video = None
     fail_login_with = None   # set to a status code to make login fail (e.g. 500)
+    quick = True             # Quick Connect enabled
+    quick_polls_needed = 2   # the code is "approved" after this many polls
 
     def log_message(self, *a):
         pass
@@ -73,6 +85,15 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(n)
         u = urlparse(self.path)
         Handler.log.append(("POST", u.path, body))
+        if u.path == "/QuickConnect/Initiate":
+            if not Handler.quick:
+                return self.send({"error": "off"}, 401)
+            Handler.polls = 0
+            return self.send({"Secret": "sec-1", "Code": "482913", "Authenticated": False})
+        if u.path == "/Users/AuthenticateWithQuickConnect":
+            if json.loads(body or b"{}").get("Secret") == "sec-1" and Handler.polls >= Handler.quick_polls_needed:
+                return self.send({"AccessToken": TOKEN, "User": {"Id": UID, "Name": "kid"}})
+            return self.send({"error": "not approved"}, 401)
         if u.path == "/Users/AuthenticateByName":
             if Handler.fail_login_with:
                 return self.send({"error": "x"}, Handler.fail_login_with)
@@ -90,6 +111,11 @@ class Handler(BaseHTTPRequestHandler):
         Handler.log.append(("GET", self.path, b""))
         if p == "/System/Info/Public":
             return self.send({"ServerName": "fake-jellyfin", "Version": "10.11.0", "Id": "abc"})
+        if p == "/QuickConnect/Enabled":
+            return self.send(Handler.quick)
+        if p == "/QuickConnect/Connect":
+            Handler.polls += 1
+            return self.send({"Authenticated": Handler.polls >= Handler.quick_polls_needed and q.get("secret") == ["sec-1"], "Code": "482913"})
         if not self.authed():
             return self.send({"error": "auth"}, 401)
         if p == f"/Users/{UID}":
@@ -115,7 +141,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send({"Items": EPS.get((q.get("seasonId") or [""])[0], []), "TotalRecordCount": 1})
         if p.startswith("/Items/") and "/Images/Primary" in p:
             h = int((q.get("fillHeight") or ["144"])[0])
-            return self.send(bmp24(h * 2 // 3, h, int(p.split("/")[2], 16) % 7), 200, "image/bmp")
+            seed = int(p.split("/")[2], 16) % 7
+            if (q.get("format") or [""])[0] == "Png":                  # like a real server: PNG when asked, otherwise the original (a "JPEG")
+                return self.send(png_rgb(h * 2 // 3, h, seed), 200, "image/png")
+            return self.send(b"\xff\xd8\xff\xe0JFIF", 200, "image/jpeg")
         if p.startswith("/Videos/"):
             if p.endswith("/master.m3u8"):
                 return self.send(b"#EXTM3U\n", 200, "application/vnd.apple.mpegurl")
@@ -126,7 +155,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port=0, video=None):
-    Handler.log, Handler.video, Handler.fail_login_with = [], video, None
+    Handler.log, Handler.video, Handler.fail_login_with, Handler.quick, Handler.quick_polls_needed, Handler.polls = [], video, None, True, 2, 0
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"

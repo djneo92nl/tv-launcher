@@ -1,5 +1,6 @@
 import json
 import os
+import struct
 import tempfile
 import time
 import unittest
@@ -61,6 +62,33 @@ class ImageTests(unittest.TestCase):
                 images.parse_bmp(bad)
         with self.assertRaises(images.ImageError):
             images.parse_bmp(images.make_bmp(4, 4, lambda x, y: (0, 0, 0))[:-5])
+
+
+class PngTests(unittest.TestCase):
+    def test_every_filter_type_and_colour_type_decodes_to_the_same_pixels(self):
+        px = lambda x, y: ((x * 40 + y * 7) % 256, (y * 60) % 256, (x * y * 13) % 256, (x * 50 + 30) % 256)
+        for f in range(5):
+            w, h, bgra = images.parse_png(images.make_png(5, 4, px, filter_type=f))
+            self.assertEqual((w, h, len(bgra)), (5, 4, 80), f)
+            r, g, b, _ = px(3, 2)
+            self.assertEqual(bgra[(2 * 5 + 3) * 4:(2 * 5 + 3) * 4 + 4], bytes((b, g, r, 255)), f"filter {f}")
+        w, h, bgra = images.parse_png(images.make_png(3, 2, px, ctype=6, filter_type=4))
+        r, g, b, a = px(1, 1)
+        self.assertEqual(bgra[(1 * 3 + 1) * 4:(1 * 3 + 1) * 4 + 4], bytes((b, g, r, a)))
+        w, h, bgra = images.parse_png(images.make_png(3, 2, lambda x, y: (x * 90, 0, 0), ctype=0))
+        self.assertEqual(bgra[8:12], bytes((180, 180, 180, 255)))
+
+    def test_parse_image_chooses_by_content_and_refuses_jpeg_and_damage(self):
+        self.assertEqual(images.parse_image(images.make_png(2, 2, lambda x, y: (1, 2, 3)))[:2], (2, 2))
+        self.assertEqual(images.parse_image(images.make_bmp(2, 2, lambda x, y: (1, 2, 3)))[:2], (2, 2))
+        for bad in (b"\xff\xd8\xff\xe0JFIF", b"", b"\x89PNG\r\n\x1a\n", images.make_png(4, 4, lambda x, y: (0, 0, 0))[:-30]):
+            with self.assertRaises(images.ImageError):
+                images.parse_image(bad)
+
+    def test_a_png_bomb_is_refused(self):
+        big = images.make_png(2, 2, lambda x, y: (0, 0, 0)).replace(struct.pack(">I", 2) + struct.pack(">I", 2), struct.pack(">I", 99999) + struct.pack(">I", 2), 1)
+        with self.assertRaises(images.ImageError):
+            images.parse_png(big)
 
 
 class NetTests(unittest.TestCase):

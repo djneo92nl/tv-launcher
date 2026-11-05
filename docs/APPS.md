@@ -36,8 +36,8 @@ Icons are 16x16 strings in `ui.ICONS`; add yours there.
 
 ## Pictures
 
-mpv draws ASS text and shapes from `draw()`; real pictures (covers, posters) go through `tvkit/images.py`: `parse_bmp(bytes)` then `show(mpv, id, x, y, w, h, bgra)`.
-Ask servers for BMP (ReMoment: `/api/artwork/<hash>/<size>.bmp`; Jellyfin: `?format=Bmp`). **Pictures are drawn above all text and shapes**
+mpv draws ASS text and shapes from `draw()`; real pictures (covers, posters) go through `tvkit/images.py`: `parse_image(bytes)` then `show(mpv, id, x, y, w, h, bgra)`.
+Ask servers for BMP or PNG, both decoded with the standard library (ReMoment: `/api/artwork/<hash>/<size>.bmp`; Jellyfin: `?format=Png`, because a real Jellyfin ignores `format=Bmp` and sends JPEG, which cannot be decoded without an imaging library). `images.parse_image(bytes)` picks the decoder. **Pictures are drawn above all text and shapes**
 (measured on mpv for the Mac): put labels beside or below a cover, never on it, and hide pictures (`images.hide`) when a menu or toast has to cover them.
 mpv wants window pixels, not canvas pixels: multiply by `self.window_scale()`.
 

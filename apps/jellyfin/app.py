@@ -60,6 +60,7 @@ class Jellyfin(Shell):
         self.covers, self.cover_q, self.cover_pending, self.img_shown = {}, queue.Queue(), set(), {}
         self.playing = None              # {"entry", "list", "index", "method", "last_report"}
         self.user_text = saved.get("user_name", "")
+        self.qc_ok, self.prefer_password = False, False
         threading.Thread(target=self._cover_worker, daemon=True, name="posters").start()
         self.begin(saved if saved.get("host") == self.client.host and saved.get("token") else None)
 
@@ -70,8 +71,10 @@ class Jellyfin(Shell):
             if saved:
                 self.client.use(saved)
                 if not self.client.check():
+                    self.qc_ok = self.client.quick_enabled()
                     return "login"
                 return "home"
+            self.qc_ok = self.client.quick_enabled()
             return "login"
         self.background(job, self._after_connect, self._connect_failed)
 
@@ -92,10 +95,43 @@ class Jellyfin(Shell):
 
     def push_login(self, error=""):
         self.stack = []
+        if self.qc_ok and not self.prefer_password:
+            self.note = error
+            self.push(Screen("quick", "SIGN IN", code="", secret=None, asked=0, polled=0, done=True))
+            self.state = "login"
+            self.quick_begin(self.cur)
+            return
         s = Screen("login", "SIGN IN", step=0, keyboard=ui.Keyboard(self.user_text, full=True, submit_label="NEXT"), done=True)
         self.note = error
         self.push(s)
         self.state = "login"
+
+    def quick_begin(self, s):
+        s.code, s.secret, s.asked, s.polled, s.busy = "", None, __import__("time").time(), 0, True
+        def got(res):
+            s.secret, s.code, s.busy = res[1], res[0], False
+            self.note = ""
+        def failed(msg):
+            s.busy = False
+            self.prefer_password = True
+            self.push_login(msg + " - use your password instead")
+        self.background(lambda: (lambda sc: (sc[1], sc[0]))(self.client.quick_start()), got, failed)
+
+    def quick_tick(self, s, now):
+        if s.busy:
+            return
+        if s.secret and now - s.asked > 280:                      # codes expire after a few minutes: ask for a new one
+            self.quick_begin(s)
+            return
+        if s.secret and now - s.polled >= 3:
+            s.polled, secret = now, s.secret
+            s.busy = True
+            def done(ok):
+                s.busy = False
+                if ok and self.cur is s:
+                    s.busy = True
+                    self.background(lambda: self.client.quick_login(secret), self._logged_in, lambda m: (setattr(s, "busy", False), self.note_error(m)))
+            self.background(lambda: self.client.quick_approved(secret), done, lambda m: (setattr(s, "busy", False), self.note_error(m)))
 
     def login_step(self, s):
         text = s.keyboard.text
@@ -153,7 +189,7 @@ class Jellyfin(Shell):
         while True:
             key = self.cover_q.get()
             try:
-                self.covers[key] = images.parse_bmp(self.client.poster(key[0], key[1]))
+                self.covers[key] = images.parse_image(self.client.poster(key[0], key[1]))
             except (NetError, ImageError, jf.JellyfinError):
                 self.covers[key] = None
             self.later(self.refresh)
@@ -374,11 +410,21 @@ class Jellyfin(Shell):
             return
         if s is None:
             return super().handle(cmd)
+        if s.kind == "quick":
+            if cmd == "enter":
+                self.prefer_password = True
+                self.push_login()
+            elif cmd in ("quit", "back"):
+                self.quit()
+            return
         if s.kind in ("login", "search"):
             if cmd == "back":
                 if s.kind == "login" and s.step == 1:
                     s.step, s.keyboard = 0, ui.Keyboard(self.user_text, full=True, submit_label="NEXT")
                     self.note = ""
+                elif s.kind == "login" and self.qc_ok:
+                    self.prefer_password = False
+                    self.push_login()
                 elif not self.pop():
                     self.quit()
                 return
@@ -455,6 +501,8 @@ class Jellyfin(Shell):
             self.img_shown.clear()
             self.playing = None
         self.pb.tick(now)
+        if self.cur is not None and self.cur.kind == "quick":
+            self.quick_tick(self.cur, now)
         p = self.playing
         if p and self.pb.active and self.pb.pos is not None and now - p["last_report"] >= 10:
             p["last_report"] = now
@@ -473,6 +521,15 @@ class Jellyfin(Shell):
             out += ui.header("JELLYFIN") + [ui.text(ui.W // 2, ui.H // 2 - 20, ui.esc(msg)[:70], 26, ui.WARN if self.error else ui.WHITE, an=5),
                                               ui.text(ui.W // 2, ui.H // 2 + 30, 'Set "jellyfin.host" in config.json', 18, ui.GREY, an=5, bold=False)]
             out += ui.footer("ENTER retry   Q back")
+        elif s.kind == "quick":
+            code = s.code or "......"
+            out += ui.header("SIGN IN") + [
+                ui.text(ui.W // 2, ui.SY + 70, "QUICK CONNECT", 22, ui.AMBER, an=8, border=1),
+                ui.text(ui.W // 2, ui.SY + 140, " ".join(code), 96, an=8, border=3),
+                ui.text(ui.W // 2, ui.SY + 270, "On your phone or computer open Jellyfin,", 20, ui.GREY, an=8, bold=False, border=1),
+                ui.text(ui.W // 2, ui.SY + 298, "go to Settings > Quick Connect and type this code.", 20, ui.GREY, an=8, bold=False, border=1),
+                ui.text(ui.W // 2, ui.SY + 350, "waiting..." if s.code else "asking the server for a code...", 18, ui.DIM, an=8, bold=False, border=0)]
+            out += ui.footer("ENTER sign in with a password instead   Q back", self.note)
         elif s.kind == "login":
             who = "Name" if s.step == 0 else f"Password for {self.user_text}"
             out += ui.header("SIGN IN  -  " + who.upper()[:30]) + s.keyboard.draw(ui.SY + 96) + ui.footer("ARROWS + ENTER type, or use a keyboard   ESC back", self.note)

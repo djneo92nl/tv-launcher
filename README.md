@@ -8,7 +8,7 @@ app with the arrow keys, a remote (HDMI-CEC) or `1`-`9`, and `q` brings you back
 | **clock** | big clock and date, drifts a few pixels so nothing burns in | nothing |
 | **media** | browse USB sticks, shares and folders; plays video and music with subtitles, seeks, remembers where you stopped, plays the next file | nothing |
 | **remoment** | your ReMoment music library: album cover grid, artists, playlists, recently played, favourites, search (on-screen keyboard), now playing with the cover's colours; plays through mpv | a ReMoment server |
-| **jellyfin** | your Jellyfin movies and shows: on-screen sign-in (only the token is kept, mode 0600), continue watching, next up, poster grids, series / seasons / episodes, search, resume, progress reported back, direct play with an HLS transcode fallback | a Jellyfin server |
+| **jellyfin** | your Jellyfin movies and shows: sign-in with Quick Connect (a code on the TV, approved in Jellyfin) or an on-screen password keyboard (only the token is kept, mode 0600), continue watching, next up, poster grids, series / seasons / episodes, search, resume, progress reported back, direct play with an HLS transcode fallback | a Jellyfin server |
 | **photos** | slideshow of folders and USB sticks (`photos.dirs`), shuffle, pause | nothing |
 | **news** | RSS / Atom headlines and stories (`feeds`), cached 15 min, works offline from the cache | network |
 | **info** | address, temperature, memory, disk, under-voltage warnings | nothing |

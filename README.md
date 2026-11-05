@@ -92,3 +92,7 @@ See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and 
 | `tools/fake_remoment.py`, `tools/fake_jellyfin.py` | pretend ReMoment and Jellyfin servers for tests and demos |
 | `pi/` | `setup.sh` and the systemd unit |
 | `mac/`, `desktop/` | the Mac app builder, the Linux desktop entry installer, and the icon drawing |
+
+## License
+
+GPL-3.0, see [LICENSE](LICENSE). `tvkit/mpvctl.py`, `tvkit/inputs.py` and `apps/news/feeds.py` come from the author's TV Tuner project. The launcher only starts the separate `mpv` program, it does not include it.

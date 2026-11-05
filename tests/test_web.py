@@ -213,7 +213,7 @@ class AuthTests(WebCase):
         for host in ("evil.example.com", "evil.example.com:8090", "attacker.net", "a.b.c.d", "192.168.1.1.evil.com", "localhost.evil.com"):
             self.assertEqual(self.r.call("GET", "/api/status", host=host)[0], 403, host)
             self.assertEqual(self.r.call("GET", "/", host=host)[0], 403, host)
-        for host in ("127.0.0.1:8090", "localhost:8090", "tv.local", "[::1]:8090", "192.168.1.169:8090"):
+        for host in ("127.0.0.1:8090", "localhost:8090", "tv.local", "[::1]:8090", "192.168.1.50:8090"):
             self.assertEqual(self.r.call("GET", "/api/status", host=host)[0], 200, host)
 
     def test_cross_site_origins_are_refused_and_no_cors_is_offered(self):

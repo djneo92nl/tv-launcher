@@ -216,5 +216,9 @@
       "~/Movies",
       "~/Music"
     ]
+  },
+  "remoment": {
+    "host": "http://remoment.local",
+    "scope": "files"
   }
 }

@@ -2,6 +2,7 @@
 import importlib.util
 import os
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -19,7 +20,7 @@ def load_app(name):
 
 class FakeMpv:
     """Stands in for tvkit.mpvctl.Mpv: records what the app asked for."""
-    dir = "/tmp"
+    dir = tempfile.mkdtemp(prefix="fakempv-")
 
     def __init__(self):
         self.overlays, self.commands, self.played = {}, [], []
@@ -54,4 +55,7 @@ def fake_shell(cls, cfg=None):
 def press(shell, *cmds):
     for c in cmds:
         shell.q.put(("cmd", c))
-        shell.step(0)
+        for _ in range(100):                      # background threads queue events too: handle everything waiting, the key included
+            shell.step(0)
+            if shell.q.empty():
+                break

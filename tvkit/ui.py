@@ -107,20 +107,21 @@ class ListView:
         return range(self.first, min(self.first + self.rows, len(self.items)))
 
 
-def list_rows(view, label, detail=None, y0=SY + 56, row_h=52, empty="Nothing here"):
-    """Draw the visible rows. label(item) and detail(item) give the two lines (detail is optional and greyer)."""
+def list_rows(view, label, detail=None, y0=SY + 56, row_h=52, empty="Nothing here", x0=SX, x1=None):
+    """Draw the visible rows between x0 and x1 (default: the full width). label(item) and detail(item) give the two lines (detail is optional and greyer)."""
+    x1 = x1 or W - SX
     if not view.items:
-        return [text(W // 2, H // 2, esc(empty), 24, GREY, an=5, bold=False)]
+        return [text((x0 + x1) // 2, H // 2, esc(empty), 24, GREY, an=5, bold=False)]
     out = []
     for n, i in enumerate(view.visible()):
         y, it, sel = y0 + n * row_h, view.items[i], i == view.sel
         if sel:
-            out.append(rect(SX - 6, y, W - SX + 6, y + row_h - 4, HILITE, "60"))
-        out.append(text(SX + 4, y + 5, esc(label(it))[:max(20, (W - 2 * SX) // 10)], 24, border=1))
+            out.append(rect(x0 - 6, y, x1 + 6, y + row_h - 4, HILITE, "60"))
+        out.append(text(x0 + 4, y + 5, esc(label(it))[:max(12, (x1 - x0) // 10)], 24, border=1))
         if detail and detail(it):
-            out.append(text(SX + 4, y + 31, esc(detail(it))[:max(30, (W - 2 * SX) // 9)], 15, GREY if sel else DIM, bold=False, border=1))
+            out.append(text(x0 + 4, y + 31, esc(detail(it))[:max(20, (x1 - x0) // 7)], 15, GREY if sel else DIM, bold=False, border=1))
     if len(view.items) > view.rows:                                 # where we are in a long list
-        out.append(text(W - SX, H - SY - 28, f"{view.sel + 1} / {len(view.items)}", 16, DIM, an=9, border=0))
+        out.append(text(x1, H - SY - 28, f"{view.sel + 1} / {len(view.items)}", 16, DIM, an=9, border=0))
     return out
 
 
@@ -210,3 +211,119 @@ def tile_grid(tiles, sel, confirm_id=None):
         if i < 10:
             out.append(text(x + 10, y + 8, str((i + 1) % 10), 16, AMBER if on else DIM, border=1))
     return out, cols
+
+
+def ass_colour(hex_colour, fallback=AMBER):
+    """"#rrggbb" (as the ReMoment / Jellyfin APIs give colours) to ASS "&HBBGGRR&"."""
+    h = (hex_colour or "").lstrip("#")
+    if len(h) != 6 or any(c not in "0123456789abcdefABCDEF" for c in h):
+        return fallback
+    return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
+
+
+# ---- grid (covers, posters) ----
+class GridView:
+    """Items laid out `cols` wide and `rows` high per page; arrows move the selection, the page follows it."""
+
+    def __init__(self, items, cols=4, rows=2):
+        self.items, self.cols, self.rows, self.sel = list(items), cols, rows, 0
+
+    def current(self):
+        return self.items[self.sel] if self.items else None
+
+    @property
+    def first(self):
+        """Index of the first visible item: the page (row-aligned) holding the selection, scrolled a row at a time."""
+        return max(0, self.sel // self.cols - self.rows + 1) * self.cols
+
+    def visible(self):
+        return range(self.first, min(self.first + self.cols * self.rows, len(self.items)))
+
+    def handle(self, cmd):
+        n = len(self.items)
+        if not n:
+            return False
+        c = self.cols
+        if cmd in ("left", "wheel_up"):
+            self.sel = (self.sel - 1) % n
+        elif cmd in ("right", "wheel_down"):
+            self.sel = (self.sel + 1) % n
+        elif cmd == "down":
+            if self.sel + c < n:
+                self.sel += c
+            elif self.sel // c < (n - 1) // c:                 # a short last row: go to its last item
+                self.sel = n - 1
+        elif cmd == "up":
+            self.sel = self.sel - c if self.sel - c >= 0 else self.sel
+        else:
+            return False
+        return True
+
+    def near_end(self, margin=None):
+        return self.sel >= len(self.items) - (margin or self.cols * 2)
+
+
+# ---- on-screen keyboard (for a remote with only arrows and OK) ----
+KEY_ROWS = ["abcdefghij", "klmnopqrst", "uvwxyz0123", "456789'.-&"]
+KEY_ACTIONS = ["SPACE", "DELETE", "CLEAR", "SEARCH"]
+
+
+class Keyboard:
+    """Letters in a grid plus an action row. handle(cmd) returns "submit" when SEARCH is pressed; typed letters (char:x, backspace) work too."""
+
+    def __init__(self, text=""):
+        self.text, self.r, self.c = text, 0, 0
+
+    def _row_len(self, r):
+        return len(KEY_ACTIONS) if r == len(KEY_ROWS) else len(KEY_ROWS[r])
+
+    def handle(self, cmd):
+        last = len(KEY_ROWS)
+        if cmd == "up":
+            self.r = (self.r - 1) % (last + 1)
+        elif cmd == "down":
+            self.r = (self.r + 1) % (last + 1)
+        elif cmd == "left":
+            self.c = (self.c - 1) % self._row_len(self.r)
+        elif cmd == "right":
+            self.c = (self.c + 1) % self._row_len(self.r)
+        elif cmd == "enter":
+            if self.r < last:
+                self.text += KEY_ROWS[self.r][min(self.c, 9)]
+            else:
+                act = KEY_ACTIONS[min(self.c, len(KEY_ACTIONS) - 1)]
+                if act == "SPACE":
+                    self.text += " "
+                elif act == "DELETE":
+                    self.text = self.text[:-1]
+                elif act == "CLEAR":
+                    self.text = ""
+                else:
+                    return "submit"
+        elif cmd == "backspace":
+            self.text = self.text[:-1]
+        elif cmd.startswith("char:"):
+            ch = cmd[5:]
+            self.text += " " if ch == "space" else ch
+        else:
+            return None
+        self.c = min(self.c, self._row_len(self.r) - 1)
+        return "changed"
+
+    def draw(self, y0=SY + 110):
+        out = [rect(SX, y0 - 52, W - SX, y0 - 8, "&H281810&"), text(SX + 14, y0 - 44, esc(self.text) + "_", 28, border=1)]
+        cell = min(54, (W - 2 * SX) // 10)
+        x0 = (W - cell * 10) // 2
+        for r, row in enumerate(KEY_ROWS):
+            for c, ch in enumerate(row):
+                on = (r, c) == (self.r, self.c)
+                x, y = x0 + c * cell, y0 + r * cell
+                out.append(rect(x + 2, y + 2, x + cell - 2, y + cell - 2, HILITE if on else "&H281810&", "40" if on else "30"))
+                out.append(text(x + cell // 2, y + cell // 2, ch.upper(), 24, AMBER if on else WHITE, an=5, border=1))
+        ay, aw = y0 + len(KEY_ROWS) * cell + 8, (cell * 10) // len(KEY_ACTIONS)
+        for c, name in enumerate(KEY_ACTIONS):
+            on = (len(KEY_ROWS), c) == (self.r, self.c)
+            x = x0 + c * aw
+            out.append(rect(x + 2, ay, x + aw - 2, ay + 40, HILITE if on else "&H281810&", "40" if on else "30"))
+            out.append(text(x + aw // 2, ay + 20, name, 18, AMBER if on else WHITE, an=5, border=1))
+        return out

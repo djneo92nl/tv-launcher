@@ -142,6 +142,67 @@ class ShellTests(unittest.TestCase):
             ui.set_canvas(old)
 
 
+class GridKeyboardTests(unittest.TestCase):
+    def test_grid_moves_and_scrolls_a_row_at_a_time(self):
+        g = ui.GridView(range(11), 4, 2)                        # rows: 0-3, 4-7, 8-10
+        g.handle("down"); g.handle("down")
+        self.assertEqual((g.sel, g.first), (8, 4))              # the page follows the selection by a row
+        g.handle("right"); g.handle("right")
+        self.assertEqual(g.sel, 10)
+        g.handle("up")
+        self.assertEqual(g.sel, 6)
+        g.sel = 6
+        g.handle("down")
+        self.assertEqual(g.sel, 10)                             # short last row: its last item
+        g.handle("down")
+        self.assertEqual(g.sel, 10)
+        self.assertFalse(ui.GridView([]).handle("down"))
+        self.assertTrue(list(ui.GridView(range(3), 4, 2).visible()) == [0, 1, 2])
+
+    def test_keyboard_typing_actions_and_submit(self):
+        k = ui.Keyboard()
+        k.handle("enter"); k.handle("right"); k.handle("enter")            # a, b
+        self.assertEqual(k.text, "ab")
+        k.handle("char:z"); k.handle("char:space"); k.handle("char:q")
+        self.assertEqual(k.text, "abz q")
+        k.handle("backspace")
+        self.assertEqual(k.text, "abz ")
+        k.r, k.c = len(ui.KEY_ROWS), 1                                      # DELETE
+        k.handle("enter")
+        self.assertEqual(k.text, "abz")
+        k.c = 2                                                              # CLEAR
+        k.handle("enter")
+        self.assertEqual(k.text, "")
+        k.c = 3                                                              # SEARCH
+        self.assertEqual(k.handle("enter"), "submit")
+        self.assertIsNone(k.handle("volup"))
+        self.assertIn("SEARCH", "\n".join(k.draw()))
+
+    def test_keyboard_cursor_stays_inside_the_short_action_row(self):
+        k = ui.Keyboard()
+        k.c = 9
+        k.handle("down"); k.handle("down"); k.handle("down"); k.handle("down")
+        self.assertEqual((k.r, k.c), (4, 3))
+
+    def test_colours(self):
+        self.assertEqual(ui.ass_colour("#1b2c3d"), "&H3D2C1B&")
+        self.assertEqual(ui.ass_colour(None), ui.AMBER)
+        self.assertEqual(ui.ass_colour("#zzzzzz"), ui.AMBER)
+
+    def test_list_rows_can_sit_beside_something(self):
+        v = ui.ListView(["a", "b"], 7)
+        self.assertIn("\\pos(254,", "\n".join(ui.list_rows(v, str, x0=250)))
+
+    def test_later_runs_on_the_loop_thread(self):
+        s = fake_shell(Shell)
+        seen = []
+        import threading
+        threading.Thread(target=lambda: s.later(lambda: seen.append(threading.current_thread().name))).start()
+        for _ in range(3):
+            s.step(0.05)
+        self.assertEqual(seen, [threading.current_thread().name])
+
+
 class ClockTests(unittest.TestCase):
     def test_faces(self):
         import datetime

@@ -134,6 +134,12 @@ class Shell:
             return None
         if kind == "cmd":
             return kind, val
+        if kind == "call":                                  # work handed back from a background thread, see later()
+            try:
+                val()
+            except Exception:
+                log.exception("error in a callback")
+            return "tick", None
         mpv, ev = val
         if mpv is not self.mpv:
             return None
@@ -154,6 +160,10 @@ class Shell:
         if name == "mpv-exited" and not self.stopping:
             return ("dead", None) if not self.revive() else ("resize", None)
         return "mpv", ev
+
+    def later(self, fn):
+        """Run fn() on the main loop's thread (call it from a background thread when a download is done, then touch the app's state safely)."""
+        self.q.put(("call", fn))
 
     def refresh(self):
         """Redraw at the next loop even if the picture is the same (after something outside drew over it)."""

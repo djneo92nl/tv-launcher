@@ -7,12 +7,13 @@ app with the arrow keys, a remote (HDMI-CEC) or `1`-`9`, and `q` brings you back
 |---|---|---|
 | **clock** | big clock and date, drifts a few pixels so nothing burns in | nothing |
 | **media** | browse USB sticks, shares and folders; plays video and music with subtitles, seeks, remembers where you stopped, plays the next file | nothing |
+| **remoment** | your ReMoment music library: album cover grid, artists, playlists, recently played, favourites, search (on-screen keyboard), now playing with the cover's colours; plays through mpv | a ReMoment server |
 | **photos** | slideshow of folders and USB sticks (`photos.dirs`), shuffle, pause | nothing |
 | **news** | RSS / Atom headlines and stories (`feeds`), cached 15 min, works offline from the cache | network |
 | **info** | address, temperature, memory, disk, under-voltage warnings | nothing |
 | Spelunkr TV, IPTV | the sibling repos, started as external apps from `/opt/spelunkr-tv` and `/opt/spelunkr-iptv` | their own setup |
 
-Planned, in this order: ReMoment (a music client with a player), Jellyfin.
+Planned next: Jellyfin.
 
 ```bash
 python3 launcher.py --list           # which apps it found
@@ -28,7 +29,7 @@ sudo sh pi/setup.sh --spelunkr ../"TV Tuner" --iptv ../"TV Tuner IPTV" --enable
 ```
 
 Installs to `/opt/tv-launcher` (and the two TV clients, if given, into their own folders), lets the menu restart and shut down the Pi, and boots into the menu.
-Keep your own settings in `/opt/tv-launcher/config.json` (profiles = the mpv command line for pi / hdmi / desktop, plus `feeds`, `photos`, `clock`, `media.roots`)
+Keep your own settings in `/opt/tv-launcher/config.json` (profiles = the mpv command line for pi / hdmi / desktop, plus `feeds`, `photos`, `clock`, `media.roots`, `remoment.host`)
 and `launcher.json` (`autostart`: an app id to start a few seconds after boot unless a key is pressed). An update keeps both files.
 Log: `~/.cache/tv-launcher/launcher.log`, and one log per app next to it.
 
@@ -50,4 +51,5 @@ See [docs/APPS.md](docs/APPS.md): an app is one class with `handle`, `tick` and 
 | `tvkit/net.py`, `tvkit/images.py`, `tvkit/config.py` | HTTP, BMP pictures, config |
 | `tvkit/mpvctl.py`, `tvkit/inputs.py` | vendored from the TV Tuner repo (keyboard, USB / evdev, CEC, mpv JSON IPC) |
 | `apps/` | the apps, and `_template` |
+| `tools/fake_remoment.py` | a pretend ReMoment server for tests and demos |
 | `pi/` | `setup.sh` and the systemd unit |

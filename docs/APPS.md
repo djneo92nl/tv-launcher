@@ -48,6 +48,13 @@ mpv wants window pixels, not canvas pixels: multiply by `self.window_scale()`.
 `tick(now)` saves the position every 10 s, `osd(now)` gives the title / position bar / notices to put in your `draw()`, `stop()` saves and stops.
 `apps/media/app.py` is the worked example (it also plays the next file in the folder when one ends). ReMoment and Jellyfin use the same object.
 
+## Covers and grids
+
+`ui.GridView(items, cols, rows)` for cover / poster grids, `ui.Keyboard` for an on-screen keyboard (letters also arrive as `char:x` and `backspace` from a real
+keyboard while `tvkit.inputs.TEXT_MODE` is True), `ui.ass_colour("#rrggbb")` for colours from an API, and `Shell.later(fn)` to hand a result from a download thread
+back to the main loop. `apps/remoment/app.py` shows the whole pattern: a worker thread fetches BMP covers, `images.show` puts them above the text, labels sit below.
+Choose the cover size from what fits the window (`window_scale()`): the server makes 32 to 160 px covers.
+
 ## Network (`tvkit/net.py`)
 
 `get_json`, `request` (timeout, size limit, fixed User-Agent, TLS verified, errors never contain the URL) and `write_private` for tokens (0600). Never log a token.

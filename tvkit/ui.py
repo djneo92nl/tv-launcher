@@ -176,10 +176,20 @@ ICONS = {
 PX = 6
 
 
+def _path(boxes):
+    return " ".join(f"m {int(x0)} {int(y0)} l {int(x1)} {int(y0)} {int(x1)} {int(y1)} {int(x0)} {int(y1)}" for x0, y0, x1, y1 in boxes)
+
+
+def rects(boxes, color, alpha="00"):
+    """Many rectangles of one colour as ONE drawing event. mpv's text renderer redraws every event whenever anything changes, so fewer events is faster
+    (a 16x16 icon used to be about 25 events; on a Raspberry Pi 2 that adds up across a screen of icons)."""
+    return f"{{\\an7\\pos(0,0)\\bord0\\shad0\\1c{color}\\1a&H{alpha}&\\p1}}{_path(boxes)}{{\\p0}}"
+
+
 def icon(x, y, name, px=PX):
-    """A 16x16 pixel icon as rectangles (a run of one colour is one rectangle). Unknown names get a plain frame."""
+    """A 16x16 pixel icon: one drawing event per colour (usually two or three). Unknown names get a plain frame."""
     colour, rows = ICONS.get(name, ICONS["app"])
-    out = []
+    by_colour = {}
     for r, row in enumerate(rows):
         c = 0
         while c < len(row):
@@ -191,9 +201,9 @@ def icon(x, y, name, px=PX):
             while end < len(row) and row[end] == ch:
                 end += 1
             col = ICON_COLOURS["w" if ch == "w" else "b" if ch == "b" else colour if ch in "ar" else "g"]
-            out.append(rect(x + c * px, y + r * px, x + end * px, y + (r + 1) * px + 1, col))
+            by_colour.setdefault(col, []).append((x + c * px, y + r * px, x + end * px, y + (r + 1) * px))
             c = end
-    return out
+    return [rects(boxes, col) for col, boxes in by_colour.items()]
 
 
 # tile size, gap, icon pixel size, label size: the largest that fits every tile in the space under the header and above the description
@@ -228,7 +238,7 @@ def tile_grid(tiles, sel, confirm_id=None):
         x, y, on = gx0 + (i % cols) * (tw + gap), gy0 + (i // cols) * (th + gap), i == sel
         out.append(rect(x, y, x + tw, y + th, HILITE if on else "&H281810&", "40" if on else "30"))
         if on:
-            out += [rect(x, y, x + tw, y + 3, AMBER), rect(x, y + th - 3, x + tw, y + th, AMBER), rect(x, y, x + 3, y + th, AMBER), rect(x + tw - 3, y, x + tw, y + th, AMBER)]
+            out.append(rects([(x, y, x + tw, y + 3), (x, y + th - 3, x + tw, y + th), (x, y, x + 3, y + th), (x + tw - 3, y, x + tw, y + th)], AMBER))
         out += icon(x + (tw - 16 * px) // 2, y + 8, e.get("icon") or e["id"], px)
         out.append(text(x + tw // 2, y + th - m["font"] - 12, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:max(8, tw // 9)], m["font"], AMBER if on else WHITE, an=8, border=1))
         if i < 10:

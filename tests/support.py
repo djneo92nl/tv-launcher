@@ -33,6 +33,12 @@ class FakeMpv:
     def play(self, url, **kw):
         self.played.append(url)
 
+    def stop(self):
+        self.commands.append(("stop",))
+
+    def get(self, prop, timeout=3):
+        return {"sid": 1, "aid": 1}.get(prop)
+
     def quit(self):
         pass
 

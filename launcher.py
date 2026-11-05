@@ -32,6 +32,8 @@ DEFAULT_CONFIG = {
     "crash_seconds": 10,                    # an app that fails within this time is reported on the menu
     "apps": [
         {"id": "clock", "name": "CLOCK", "desc": "A big clock", "icon": "clock", "dir": "apps/clock", "cmd": ["python3", "app.py", "--profile", "{profile}"]},
+        {"id": "media", "name": "MEDIA", "desc": "Videos and music from USB sticks and shares", "icon": "folder", "dir": "apps/media",
+         "cmd": ["python3", "app.py", "--profile", "{profile}"]},
         {"id": "photos", "name": "PHOTOS", "desc": "Slideshow of a folder or a USB stick", "icon": "photos", "dir": "apps/photos",
          "cmd": ["python3", "app.py", "--profile", "{profile}"]},
         {"id": "news", "name": "NEWS", "desc": "Headlines from your RSS feeds", "icon": "news", "dir": "apps/news", "cmd": ["python3", "app.py", "--profile", "{profile}"]},

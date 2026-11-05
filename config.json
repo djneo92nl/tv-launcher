@@ -207,5 +207,14 @@
   "clock": {
     "seconds": false,
     "h24": true
+  },
+  "media": {
+    "roots": [
+      "/media",
+      "/mnt",
+      "~/Videos",
+      "~/Movies",
+      "~/Music"
+    ]
   }
 }

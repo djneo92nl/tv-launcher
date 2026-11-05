@@ -41,6 +41,13 @@ Ask servers for BMP (ReMoment: `/api/artwork/<hash>/<size>.bmp`; Jellyfin: `?for
 (measured on mpv for the Mac): put labels beside or below a cover, never on it, and hide pictures (`images.hide`) when a menu or toast has to cover them.
 mpv wants window pixels, not canvas pixels: multiply by `self.window_scale()`.
 
+## Playing things (`tvkit/player.py`)
+
+`Playback(self.mpv, Positions(cache_dir))`: `start(url, title, key=...)` resumes from where that key was stopped, `handle(cmd)` takes the playback keys
+(left / right seek 10 s, up / down 60 s, Enter pause, `c` subtitles, `s` audio track, `i` the bar), `on_mpv(ev)` returns `"ended"` or `"error"`,
+`tick(now)` saves the position every 10 s, `osd(now)` gives the title / position bar / notices to put in your `draw()`, `stop()` saves and stops.
+`apps/media/app.py` is the worked example (it also plays the next file in the folder when one ends). ReMoment and Jellyfin use the same object.
+
 ## Network (`tvkit/net.py`)
 
 `get_json`, `request` (timeout, size limit, fixed User-Agent, TLS verified, errors never contain the URL) and `write_private` for tokens (0600). Never log a token.

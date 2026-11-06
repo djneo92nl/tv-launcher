@@ -20,6 +20,24 @@ def set_safe(percent):
     SX, SY = round(W * SAFE_PCT / 100), round(H * SAFE_PCT / 100)
 
 
+SCALE = 1.0                         # screen pixels per canvas unit (window height / 576); the shell keeps it up to date
+
+
+def set_scale(scale):
+    global SCALE
+    SCALE = max(0.25, float(scale))
+
+
+def snap(v):
+    """A canvas coordinate moved to the nearest whole screen pixel."""
+    return round(v * SCALE) / SCALE
+
+
+def sharp(px):
+    """A pixel-art pixel size in canvas units that is a whole number of screen pixels, so every edge is crisp (a 7.5-pixel square blurs; 8 does not)."""
+    return max(1, round(px * SCALE)) / SCALE
+
+
 def set_canvas(width):
     global W
     W = int(width)
@@ -50,9 +68,14 @@ def mmss(sec):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def _n(v):
+    """A coordinate for an ASS path: whole numbers stay whole, fractions keep up to 3 decimals (needed to land on whole screen pixels)."""
+    return str(int(v)) if v == int(v) else f"{v:.3f}".rstrip("0")
+
+
 def rect(x0, y0, x1, y1, color, alpha="00"):
     return (f"{{\\an7\\pos(0,0)\\bord0\\shad0\\1c{color}\\1a&H{alpha}&\\p1}}"
-            f"m {int(x0)} {int(y0)} l {int(x1)} {int(y0)} {int(x1)} {int(y1)} {int(x0)} {int(y1)}{{\\p0}}")
+            f"m {_n(x0)} {_n(y0)} l {_n(x1)} {_n(y0)} {_n(x1)} {_n(y1)} {_n(x0)} {_n(y1)}{{\\p0}}")
 
 
 def text(x, y, s, size, color=WHITE, an=7, bold=True, border=2):
@@ -176,8 +199,48 @@ ICONS = {
 PX = 6
 
 
+def _build(*ops):
+    """A 16x16 pixel picture from shapes: ("a", x0, y0, x1, y1) fills a rectangle ("." erases); ("ring", cx, cy, r_out, r_in, edge, fill) draws a round ring with a filled middle."""
+    g = [["."] * 16 for _ in range(16)]
+    for op in ops:
+        if op[0] == "ring":
+            _, cx, cy, r_out, r_in, edge, fill = op
+            for y in range(16):
+                for x in range(16):
+                    d = ((x + .5 - cx) ** 2 + (y + .5 - cy) ** 2) ** .5
+                    if d <= r_out:
+                        g[y][x] = edge if d >= r_in else fill
+        else:
+            ch, x0, y0, x1, y1 = op
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    g[y][x] = ch
+    return ["".join(r) for r in g]
+
+
+def _framed(x0, y0, x1, y1, t=2, edge="w", fill="b"):
+    """A rectangle with a t-pixel edge and a filled middle."""
+    return [(edge, x0, y0, x1, y1), (fill, x0 + t, y0 + t, x1 - t, y1 - t)]
+
+
+# One size and one weight for the whole set: 14 pixels wide, a 1-pixel white line, a blue fill, amber for the part that matters.
+ICONS.update({
+    "clock": ("a", _build(("ring", 8, 8, 7, 6, "w", "b"), ("a", 7, 4, 9, 9), ("a", 7, 7, 12, 9))),
+    "folder": ("a", _build(*_framed(1, 2, 7, 5, 1, fill="a"), *_framed(1, 4, 15, 14, 1, fill="a"))),
+    "stream": ("a", _build(*_framed(1, 2, 15, 12, 1), ("a", 5, 4, 7, 10), ("a", 7, 5, 9, 9), ("a", 9, 6, 11, 8), ("w", 7, 12, 9, 13), ("w", 4, 13, 12, 14))),
+    "music": ("a", _build(("w", 4, 2, 15, 3), ("w", 4, 3, 5, 11), ("w", 14, 3, 15, 9), ("a", 2, 11, 5, 12), ("a", 1, 12, 5, 13), ("a", 1, 13, 4, 14),
+                          ("a", 12, 9, 15, 10), ("a", 11, 10, 15, 11), ("a", 11, 11, 14, 12))),
+    "photos": ("a", _build(*_framed(1, 2, 15, 13, 1), ("a", 9, 5, 11, 7), ("a", 3, 10, 10, 12), ("a", 4, 9, 9, 10), ("a", 5, 8, 8, 9), ("a", 6, 7, 7, 8), ("a", 10, 10, 13, 12))),
+    "news": ("a", _build(*_framed(1, 2, 15, 13, 1), ("a", 3, 4, 7, 8), ("w", 9, 4, 13, 5), ("w", 9, 6, 13, 7), ("w", 3, 9, 13, 10))),
+    "info": ("a", _build(("ring", 8, 8, 7, 6, "w", "b"), ("a", 7, 4, 9, 6), ("a", 7, 7, 9, 12))),
+    "tv": ("a", _build(*_framed(1, 4, 15, 14, 1), ("a", 4, 1, 5, 2), ("a", 5, 2, 6, 3), ("a", 6, 3, 7, 4), ("a", 11, 1, 12, 2), ("a", 10, 2, 11, 3), ("a", 9, 3, 10, 4))),
+    "globe": ("a", _build(("ring", 8, 8, 7, 6, "w", "b"), ("w", 7, 2, 8, 14), ("w", 4, 4, 5, 12), ("w", 11, 4, 12, 12), ("a", 3, 7, 13, 9))),
+    "app": ("a", _build(*_framed(2, 2, 14, 14, 1), ("a", 7, 4, 9, 5), ("a", 6, 5, 10, 6), ("a", 5, 6, 11, 7), ("a", 4, 7, 12, 9), ("a", 5, 9, 11, 10), ("a", 6, 10, 10, 11), ("a", 7, 11, 9, 12))),
+})
+
+
 def _path(boxes):
-    return " ".join(f"m {int(x0)} {int(y0)} l {int(x1)} {int(y0)} {int(x1)} {int(y1)} {int(x0)} {int(y1)}" for x0, y0, x1, y1 in boxes)
+    return " ".join(f"m {_n(x0)} {_n(y0)} l {_n(x1)} {_n(y0)} {_n(x1)} {_n(y1)} {_n(x0)} {_n(y1)}" for x0, y0, x1, y1 in boxes)
 
 
 def rects(boxes, color, alpha="00"):
@@ -239,7 +302,8 @@ def tile_grid(tiles, sel, confirm_id=None):
         out.append(rect(x, y, x + tw, y + th, HILITE if on else "&H281810&", "40" if on else "30"))
         if on:
             out.append(rects([(x, y, x + tw, y + 3), (x, y + th - 3, x + tw, y + th), (x, y, x + 3, y + th), (x + tw - 3, y, x + tw, y + th)], AMBER))
-        out += icon(x + (tw - 16 * px) // 2, y + 8, e.get("icon") or e["id"], px)
+        spx = sharp(px)                                              # whole screen pixels per icon pixel, and an origin on a whole screen pixel: crisp edges
+        out += icon(snap(x + (tw - 16 * spx) / 2), snap(y + 8), e.get("icon") or e["id"], spx)
         out.append(text(x + tw // 2, y + th - m["font"] - 12, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:max(8, tw // 9)], m["font"], AMBER if on else WHITE, an=8, border=1))
         if i < 10:
             out.append(text(x + 8, y + 6, str((i + 1) % 10), 14, AMBER if on else DIM, border=1))

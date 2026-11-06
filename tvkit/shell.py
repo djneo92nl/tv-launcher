@@ -176,6 +176,9 @@ class Shell:
         if name == "property-change" and ev.get("name") in ("osd-width", "osd-height"):
             self.win[ev["name"]] = ev.get("data")
             w, h = self.win.get("osd-width"), self.win.get("osd-height")
+            if h:
+                ui.set_scale(h / 576)                       # so pixel art can land on whole screen pixels
+                self._force = True
             if w and h:
                 width = max(512, min(1280, round(576 * w / h)))
                 if abs(width - ui.W) >= 4:

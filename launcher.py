@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
     "apps": [                               # external clients (their own programs, in their own repos); built-in and installed apps come from their app.json
         {"id": "spelunkr", "name": "SPELUNKR TV", "desc": "Cable TV from the Internet Archive", "icon": "tv", "order": 200, "source": "external",
          "dir": ["/opt/spelunkr-tv", "~/spelunkr-tv", "../TV Tuner", "../spelunkr-tv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
-        {"id": "iptv", "name": "IPTV", "desc": "Live channels from your own subscription", "icon": "stream", "order": 210, "source": "external",
+        {"id": "iptv", "name": "IPTV", "desc": "Live channels from your own subscription", "icon": "globe", "order": 210, "source": "external",
          "dir": ["/opt/spelunkr-iptv", "~/spelunkr-iptv", "../TV Tuner IPTV", "../spelunkr-iptv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
     ],
     "hidden": [],                           # app ids left out of the menu

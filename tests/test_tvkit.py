@@ -99,6 +99,43 @@ class ImageTests(unittest.TestCase):
             images.parse_bmp(images.make_bmp(4, 4, lambda x, y: (0, 0, 0))[:-5])
 
 
+class SharpIconTests(unittest.TestCase):
+    NINE = ("clock", "folder", "stream", "music", "photos", "news", "info", "tv", "globe")
+
+    def test_the_menu_icons_share_one_size_and_sit_in_the_same_box(self):
+        for name in self.NINE:
+            rows = ui.ICONS[name][1]
+            xs = [x for row in rows for x, ch in enumerate(row) if ch != "."]
+            ys = [y for y, row in enumerate(rows) for ch in row if ch != "."]
+            self.assertEqual((min(xs), max(xs)), (1, 14), name)                       # all 14 pixels wide, all starting in the same column
+            self.assertTrue(11 <= max(ys) - min(ys) + 1 <= 14, name)                  # and nearly the same height
+            self.assertTrue(1 <= min(ys) and max(ys) <= 14, name)                     # inside the same 14 x 14 box, so they line up in a row
+
+    def test_every_icon_pixel_edge_lands_on_a_whole_screen_pixel(self):
+        old = ui.SCALE
+        try:
+            for scale in (0.9375, 1.0, 1.25, 1.5, 1.875, 2.0, 0.75):
+                ui.set_scale(scale)
+                for px in (4, 5, 6):
+                    self.assertAlmostEqual(ui.sharp(px) * scale, round(ui.sharp(px) * scale), places=6, msg=(scale, px))
+                for v in (13.3, 100.7, 250.1):
+                    self.assertAlmostEqual(ui.snap(v) * scale, round(ui.snap(v) * scale), places=6, msg=(scale, v))
+                spx, ox, oy = ui.sharp(5), ui.snap(77.3), ui.snap(41.9)
+                for ev in ui.icon(ox, oy, "tv", spx):
+                    nums = [float(t) for t in ev.split("}")[1].replace("{\\p0", "").split() if t[0].isdigit() or t[0] == "."]
+                    for i, v in enumerate(nums):                                       # x, y, x, y ... along every rectangle
+                        self.assertAlmostEqual(v * scale, round(v * scale), delta=0.02, msg=(scale, v))
+        finally:
+            ui.set_scale(old)
+
+    def test_fractions_survive_in_paths_but_whole_numbers_stay_whole(self):
+        self.assertEqual(ui._n(5), "5")
+        self.assertEqual(ui._n(5.0), "5")
+        self.assertEqual(ui._n(6.4), "6.4")
+        self.assertEqual(ui._n(7.3333333), "7.333")
+        self.assertIn("m 6.4 0 l", ui.rects([(6.4, 0, 12.8, 6.4)], "&H0&"))
+
+
 class ConsoleTests(unittest.TestCase):
     def test_it_only_acts_on_a_real_virtual_console(self):
         import unittest.mock as mock

@@ -10,8 +10,6 @@ SX, SY = 54, 40                   # the same margin in canvas units (7% of 768 x
 
 BG, AMBER, WHITE = "&H180C04&", "&H40D0FF&", "&HFFFFFF&"
 RED = "&H5050FF&"
-AMBER_DIM, AMBER_EDGE = "&H1C6A8A&", "&H103A4A&"          # the same amber, dimmer: secondary ink and the thin tile outline
-ON_AMBER, ON_AMBER_DIM = BG, "&H107A9A&"                 # ink on a selected (solid amber) tile: near-black, and a darker amber
 GREY, DIM, HILITE, LINE, WARN = "&HC0C0C0&", "&H909090&", "&H603018&", "&H806040&", "&H80C0FF&"
 
 
@@ -178,25 +176,6 @@ ICONS = {
 PX = 6
 
 
-def _build(*ops):
-    """A 16x16 pixel picture from filled rectangles: ("a", x0, y0, x1, y1) draws, (".", ...) erases. Easier to get right than 16 hand-typed strings."""
-    g = [["."] * 16 for _ in range(16)]
-    for ch, x0, y0, x1, y1 in ops:
-        for y in range(y0, y1):
-            for x in range(x0, x1):
-                g[y][x] = ch
-    return ["".join(r) for r in g]
-
-
-ICONS.update({
-    "news": ("a", _build(("a", 2, 1, 14, 15), (".", 3, 2, 13, 14), ("a", 4, 3, 8, 7), ("a", 9, 3, 12, 4), ("a", 9, 5, 12, 6),
-                         ("a", 4, 8, 12, 9), ("a", 4, 10, 12, 11), ("a", 4, 12, 9, 13))),
-    "music": ("a", _build(("a", 3, 11, 7, 14), ("a", 9, 9, 13, 12), ("a", 6, 3, 8, 12), ("a", 12, 2, 14, 10), ("a", 6, 2, 14, 4), ("a", 6, 4, 14, 5))),
-    "dish": ("a", _build(("a", 7, 5, 9, 7), ("a", 4, 4, 5, 8), ("a", 11, 4, 12, 8), ("a", 2, 2, 3, 10), ("a", 13, 2, 14, 10),
-                         ("a", 7, 8, 9, 10), ("a", 6, 10, 10, 12), ("a", 5, 12, 11, 14), ("a", 4, 14, 12, 15))),
-})
-
-
 def _path(boxes):
     return " ".join(f"m {int(x0)} {int(y0)} l {int(x1)} {int(y0)} {int(x1)} {int(y1)} {int(x0)} {int(y1)}" for x0, y0, x1, y1 in boxes)
 
@@ -207,9 +186,8 @@ def rects(boxes, color, alpha="00"):
     return f"{{\\an7\\pos(0,0)\\bord0\\shad0\\1c{color}\\1a&H{alpha}&\\p1}}{_path(boxes)}{{\\p0}}"
 
 
-def icon(x, y, name, px=PX, ink=None, dim=None):
-    """A 16x16 pixel icon. By default in its own colours (one drawing event per colour). With ink=, only two tones: `ink` for the lines and `dim` for the fills
-    (the blue and grey pixels), the retro one-colour look; two events at most. Unknown names get a plain frame."""
+def icon(x, y, name, px=PX):
+    """A 16x16 pixel icon: one drawing event per colour (usually two or three). Unknown names get a plain frame."""
     colour, rows = ICONS.get(name, ICONS["app"])
     by_colour = {}
     for r, row in enumerate(rows):
@@ -222,10 +200,7 @@ def icon(x, y, name, px=PX, ink=None, dim=None):
             end = c
             while end < len(row) and row[end] == ch:
                 end += 1
-            if ink is not None:
-                col = (dim or ink) if ch in "bg" else ink
-            else:
-                col = ICON_COLOURS["w" if ch == "w" else "b" if ch == "b" else colour if ch in "ar" else "g"]
+            col = ICON_COLOURS["w" if ch == "w" else "b" if ch == "b" else colour if ch in "ar" else "g"]
             by_colour.setdefault(col, []).append((x + c * px, y + r * px, x + end * px, y + (r + 1) * px))
             c = end
     return [rects(boxes, col) for col, boxes in by_colour.items()]
@@ -252,7 +227,7 @@ def grid_cols(n, width=None):
 
 
 def tile_grid(tiles, sel, confirm_id=None):
-    """tiles: [{id, name, icon}]. Returns (ass lines, columns). Retro: square tiles with a thin dim outline; the selected one is a solid amber block with dark ink."""
+    """tiles: [{id, name, icon}]. Returns (ass lines, columns). Numbered 1-9, the selected one framed in amber."""
     n = len(tiles)
     m = tile_layout(n)
     tw, th, gap, px, cols, rows = m["tw"], m["th"], m["gap"], m["px"], m["cols"], m["rows"]
@@ -261,15 +236,13 @@ def tile_grid(tiles, sel, confirm_id=None):
     out = []
     for i, e in enumerate(tiles):
         x, y, on = gx0 + (i % cols) * (tw + gap), gy0 + (i // cols) * (th + gap), i == sel
+        out.append(rect(x, y, x + tw, y + th, HILITE if on else "&H281810&", "40" if on else "30"))
         if on:
-            out.append(rect(x, y, x + tw, y + th, AMBER))
-        else:
-            out.append(rects([(x, y, x + tw, y + 2), (x, y + th - 2, x + tw, y + th), (x, y, x + 2, y + th), (x + tw - 2, y, x + tw, y + th)], AMBER_EDGE))
-        out += icon(x + (tw - 16 * px) // 2, y + 10, e.get("icon") or e["id"], px, ink=ON_AMBER if on else AMBER, dim=ON_AMBER_DIM if on else AMBER_DIM)
-        out.append(text(x + tw // 2, y + th - m["font"] - 12, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:max(8, tw // 9)], m["font"], ON_AMBER if on else AMBER,
-                        an=8, border=0))
+            out.append(rects([(x, y, x + tw, y + 3), (x, y + th - 3, x + tw, y + th), (x, y, x + 3, y + th), (x + tw - 3, y, x + tw, y + th)], AMBER))
+        out += icon(x + (tw - 16 * px) // 2, y + 8, e.get("icon") or e["id"], px)
+        out.append(text(x + tw // 2, y + th - m["font"] - 12, "SURE?" if confirm_id == e["id"] else esc(e["name"])[:max(8, tw // 9)], m["font"], AMBER if on else WHITE, an=8, border=1))
         if i < 10:
-            out.append(text(x + 8, y + 6, str((i + 1) % 10), 14, ON_AMBER_DIM if on else AMBER_DIM, border=0))
+            out.append(text(x + 8, y + 6, str((i + 1) % 10), 14, AMBER if on else DIM, border=1))
     return out, cols
 
 

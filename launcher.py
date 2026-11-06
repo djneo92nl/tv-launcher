@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
     "apps": [                               # external clients (their own programs, in their own repos); built-in and installed apps come from their app.json
         {"id": "spelunkr", "name": "SPELUNKR TV", "desc": "Cable TV from the Internet Archive", "icon": "tv", "order": 200, "source": "external",
          "dir": ["/opt/spelunkr-tv", "~/spelunkr-tv", "../TV Tuner", "../spelunkr-tv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
-        {"id": "iptv", "name": "IPTV", "desc": "Live channels from your own subscription", "icon": "dish", "order": 210, "source": "external",
+        {"id": "iptv", "name": "IPTV", "desc": "Live channels from your own subscription", "icon": "stream", "order": 210, "source": "external",
          "dir": ["/opt/spelunkr-iptv", "~/spelunkr-iptv", "../TV Tuner IPTV", "../spelunkr-iptv"], "cmd": ["python3", "tv.py", "--profile", "{profile}"]},
     ],
     "hidden": [],                           # app ids left out of the menu
@@ -227,8 +227,8 @@ def home_screen(menu, now_ms, countdown=None):
     cur = menu.current()
     if cur:
         asking = menu.confirm and menu.confirm[0] == cur["id"]
-        out.append(ui.text(ui.W // 2, ui.H - ui.SY - 70, ui.esc("press ENTER again to confirm" if asking else cur.get("desc", ""))[:70], 20, ui.AMBER_DIM,
-                           an=2, bold=False, border=0))
+        out.append(ui.text(ui.W // 2, ui.H - ui.SY - 70, ui.esc("press ENTER again to confirm" if asking else cur.get("desc", ""))[:70], 20, ui.GREY,
+                           an=2, bold=False, border=1))
     out += ui.footer("ARROWS pick   ENTER start   1-9 quick start", countdown or menu.note)
     return "\n".join(out)
 

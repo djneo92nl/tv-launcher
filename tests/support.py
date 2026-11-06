@@ -32,6 +32,7 @@ def reset_settings():
 class FakeMpv:
     """Stands in for tvkit.mpvctl.Mpv: records what the app asked for."""
     dir = tempfile.mkdtemp(prefix="fakempv-")
+    attached = False
 
     def __init__(self):
         self.overlays, self.commands, self.played = {}, [], []

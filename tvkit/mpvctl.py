@@ -40,9 +40,19 @@ def why_it_died(err_path, limit=160):
 class Mpv:
     mono = False           # True: turn every overlay colour into its gray equivalent (black-and-white screens)
 
-    def __init__(self, argv_template, key_bindings=None, mono=False, log_dir=None):
-        """argv_template: list with {sock} and {inputconf} placeholders. key_bindings: {mpv-key: tv-command}."""
+    def __init__(self, argv_template, key_bindings=None, mono=False, log_dir=None, attach=None):
+        """argv_template: list with {sock} and {inputconf} placeholders. key_bindings: {mpv-key: tv-command}.
+        attach: the IPC socket of an mpv that is already running (the launcher's): use its window instead of starting one."""
         self.mono = mono
+        self.attached = bool(attach)
+        self.proc = None
+        self.err_path = None
+        self._saved = {}                      # options an attached app changed: put back when it lets go
+        self._detaching = False
+        if attach:
+            self.dir, self.sock_path = None, attach
+            self._start_io()
+            return
         self.dir = tempfile.mkdtemp(prefix="spelunkr-")
         self.sock_path = os.path.join(self.dir, "mpv.sock")
         conf = os.path.join(self.dir, "input.conf")
@@ -51,27 +61,56 @@ class Mpv:
                 f.write(f"{key} script-message tv {cmd}\n")
         argv = [a.replace("{sock}", self.sock_path).replace("{inputconf}", conf) for a in argv_template]
         err = subprocess.DEVNULL
-        self.err_path = None
         if log_dir:                       # keep mpv's own log and stderr: they say why it died
             os.makedirs(log_dir, exist_ok=True)
             argv += [f"--log-file={os.path.join(log_dir, 'mpv.log')}", "--msg-level=all=warn"]
             self.err_path = os.path.join(log_dir, "mpv.err")
             err = open(self.err_path, "ab")
         self.proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err)
+        self._start_io()
+
+    def _start_io(self):
         self.events = queue.Queue()
         self._ids = itertools.count(1)
         self._waiting = {}          # request_id -> (Event, [response])
         self._lock = threading.Lock()         # the table of requests waiting for a reply
         self._send_lock = threading.Lock()    # one writer at a time; separate so a slow mpv can never block the reader
+        self._detaching = False
         self._sock = self._connect()
-        self._reader = threading.Thread(target=self._read_loop, daemon=True)
-        self._reader.start()
+        threading.Thread(target=self._read_loop, args=(self._sock, self.events), daemon=True).start()
+
+    def disconnect(self):
+        """Let go of the connection but leave mpv (and its window) running; reconnect() takes it up again."""
+        self._detaching = True
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+    def reconnect(self):
+        self._start_io()
+
+    def alive(self):
+        return self.proc is None or self.proc.poll() is None
+
+    def apply(self, args):
+        """Give an attached app its own mpv options ("--name=value"), remembering what they were."""
+        for a in args:
+            name, _, val = a.lstrip("-").partition("=")
+            old = self.get(name)
+            if name not in self._saved:
+                self._saved[name] = old
+            self.command("set_property", name, val or "yes")
 
     # -- connection --
     def _connect(self, timeout=15):
         end = time.time() + timeout
         while time.time() < end:
-            if self.proc.poll() is not None:
+            if self.proc is not None and self.proc.poll() is not None:
                 why = why_it_died(self.err_path)
                 raise RuntimeError(f"mpv exited with code {self.proc.returncode} at start-up" + (f": {why}" if why else " (it printed nothing; try the profile's mpv command by hand)"))
             try:
@@ -82,19 +121,22 @@ class Mpv:
                 time.sleep(0.1)
         raise RuntimeError("could not connect to mpv IPC socket")
 
-    def _read_loop(self):
+    def _read_loop(self, sock, events):
         buf = b""
         while True:
             try:
-                chunk = self._sock.recv(65536)
+                chunk = sock.recv(65536)
             except OSError:
                 chunk = b""
             if not chunk:
+                if self._detaching:
+                    events.put({"event": "detached"})          # we let go on purpose: mpv is still there
+                    return
                 try:
-                    code = self.proc.wait(timeout=2)
+                    code = self.proc.wait(timeout=2) if self.proc else 0     # an attached app cannot tell: a vanished window is a closed one
                 except subprocess.TimeoutExpired:
                     code = None
-                self.events.put({"event": "mpv-exited", "code": code})
+                events.put({"event": "mpv-exited", "code": code})
                 return
             buf += chunk
             while b"\n" in buf:
@@ -111,7 +153,7 @@ class Mpv:
                         w[1].append(msg)
                         w[0].set()
                 elif "event" in msg:
-                    self.events.put(msg)
+                    events.put(msg)
 
     # -- commands --
     def _send(self, payload):
@@ -183,6 +225,16 @@ class Mpv:
             self.command("osd-overlay", oid, "none", "")
 
     def quit(self):
+        if self.attached:                       # the window belongs to the launcher: clear up after ourselves and let go
+            try:
+                for name, old in self._saved.items():
+                    if old is not None:
+                        self.command("set_property", name, old)
+                self.command("stop")
+            except OSError:
+                pass
+            self.disconnect()
+            return
         try:
             self.command("quit")
         except OSError:

@@ -558,3 +558,47 @@ class NewsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedWindowTests(unittest.TestCase):
+    """An app started by the launcher draws in the launcher's mpv instead of opening a second window."""
+
+    def setUp(self):
+        import socket as _s, tempfile as _t, threading as _th
+        self.path = os.path.join(_t.mkdtemp(), "mpv.sock")
+        self.srv = _s.socket(_s.AF_UNIX)
+        self.srv.bind(self.path)
+        self.srv.listen(5)
+        self.got, self.conns = [], []
+
+        def serve():
+            while True:
+                try:
+                    c, _ = self.srv.accept()
+                except OSError:
+                    return
+                self.conns.append(c)
+                _th.Thread(target=lambda c=c: [self.got.append(d) for d in iter(lambda: c.recv(4096), b"")], daemon=True).start()
+        _th.Thread(target=serve, daemon=True).start()
+
+    def tearDown(self):
+        self.srv.close()
+
+    def test_quitting_an_attached_mpv_lets_go_and_never_quits_the_window(self):
+        from tvkit.mpvctl import Mpv
+        m = Mpv([], attach=self.path)
+        self.assertTrue(m.attached)
+        m.quit()
+        time.sleep(0.3)
+        text = b"".join(self.got).decode()
+        self.assertIn('"stop"', text)
+        self.assertNotIn('"quit"', text)
+        self.assertEqual(m.events.get(timeout=2)["event"], "detached")      # not "mpv-exited": nothing died
+
+    def test_a_vanished_window_looks_like_a_closed_one_to_an_attached_app(self):
+        from tvkit.mpvctl import Mpv
+        m = Mpv([], attach=self.path)
+        time.sleep(0.2)
+        for c in self.conns:
+            c.close()
+        self.assertEqual(m.events.get(timeout=2), {"event": "mpv-exited", "code": 0})

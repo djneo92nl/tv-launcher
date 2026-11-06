@@ -35,6 +35,7 @@ class Shell:
         self.cfg = cfg
         self.q = queue.Queue()
         self.mpv = None
+        self.held = None                  # an mpv kept running (not closed) between two programs: see close_screen
         self.inputs = []
         self.win = {}
         self.mpv_deaths = []
@@ -96,11 +97,29 @@ class Shell:
         ui.set_safe((self.cfg.get("display") or {}).get("safe_percent", 7))      # some screens crop the edges: the margin is a setting
         prof = self.cfg["prof"]
         argv = [a for a in prof["mpv"] if not a.startswith(("--volume=", "--mute="))] + list(self.mpv_args)
-        self.mpv = Mpv(argv, dict(inputs.KEY_BINDINGS), mono=bool(prof.get("mono")), log_dir=self.cfg["cache_dir"])
+        sock = os.environ.get("TVL_MPV_SOCK")
+        if self.held:                                  # the launcher's own window, kept while an app ran: take it back
+            self.mpv, self.held = self.held, None
+            if self.mpv.alive():
+                self.mpv.reconnect()
+            elif self.mpv.proc.returncode == 0:        # the window was closed meanwhile: that is a quit
+                self.mpv, self.stopping = None, True
+                return
+            else:
+                self.mpv = None
+        if self.mpv is None and sock and os.path.exists(sock):       # started by the launcher: share its window instead of opening another
+            try:
+                self.mpv = Mpv(argv, mono=bool(prof.get("mono")), attach=sock)
+                self.mpv.apply(self.mpv_args)
+            except (OSError, RuntimeError):
+                log.exception("could not share the launcher's window; opening one of our own")
+                self.mpv = None
+        if self.mpv is None:
+            self.mpv = Mpv(argv, dict(inputs.KEY_BINDINGS), mono=bool(prof.get("mono")), log_dir=self.cfg["cache_dir"])
         self.mpv.res = (ui.W, 576)
         for i, prop in enumerate(("osd-width", "osd-height"), 1):
             self.mpv.command("observe_property", i, prop)
-        threading.Thread(target=self._pump, args=(self.mpv,), daemon=True, name="mpv-events").start()
+        threading.Thread(target=self._pump, args=(self.mpv, self.mpv.events), daemon=True, name="mpv-events").start()
         self.inputs = [inputs.KeyboardInput()]
         if self.cfg.get("evdev", True) and sys.platform.startswith("linux"):
             self.inputs.append(inputs.EvdevInput())
@@ -112,25 +131,39 @@ class Shell:
             src.start(lambda c: self.q.put(("cmd", c)))
         self._force = True
 
-    def _pump(self, mpv):
+    def _pump(self, mpv, events):
         while True:
-            ev = mpv.events.get()
+            ev = events.get()
             self.q.put(("mpv", (mpv, ev)))
-            if ev.get("event") == "mpv-exited":
+            if ev.get("event") in ("mpv-exited", "detached"):
                 return
 
-    def close_screen(self):
-        """Hand everything back (the display, the keyboard): the next program needs them."""
+    def close_screen(self, keep=False):
+        """Hand everything back (the display, the keyboard): the next program needs them.
+        keep: leave mpv and its window running (held) for the next tvkit app, so the window does not close and open again."""
         for src in self.inputs:
             try:
                 src.stop()
             except Exception:
                 log.exception("stopping an input")
         self.inputs = []
+        if self.mpv and keep and not self.mpv.attached:
+            self.mpv.overlay(OVL, "")
+            self.mpv.disconnect()
+            self.held, self.mpv = self.mpv, None
+            return
         if self.mpv:
+            attached = self.mpv.attached
             self.mpv.quit()
             self.mpv = None
+            if attached:
+                return
         time.sleep(0.2)
+
+    def drop_held(self):
+        if self.held:
+            held, self.held = self.held, None
+            held.quit()
 
     def window_scale(self):
         """(sx, sy): canvas pixels to window pixels, for things mpv draws in window coordinates (images)."""
@@ -187,8 +220,10 @@ class Shell:
                     self._force = True
                     return "resize", None
             return None
+        if name == "detached":
+            return None
         if name == "mpv-exited" and not self.stopping:
-            if ev.get("code") == 0:                          # the window was closed (or q pressed in it): that is a quit, not a crash
+            if ev.get("code") == 0 or getattr(mpv, "attached", False):                          # the window was closed (or q pressed in it): that is a quit, not a crash
                 return "closed", None
             return ("dead", None) if not self.revive() else ("resize", None)
         return "mpv", ev

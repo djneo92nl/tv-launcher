@@ -527,7 +527,7 @@ class Launcher(Shell):
                         self.mpv.overlay(1, ass)
                         drawn, self._force = ass, False
         finally:
-            self.close_screen()
+            self.close_screen(keep=True)            # the window stays: the next tvkit app draws in it
         return None
 
     # -- running an app --
@@ -540,7 +540,14 @@ class Launcher(Shell):
         log.info("starting %s: %s (in %s)", entry["id"], cmd, cwd)
         t0 = time.time()
         # every app can `import tvkit` wherever its folder is (installed apps live outside this repo)
-        env = {**os.environ, "TVL_APP_ID": entry["id"], "PYTHONPATH": os.pathsep.join(p for p in (ROOT, os.environ.get("PYTHONPATH")) if p)}
+        shared = entry.get("source") in ("builtin", "user") and self.held     # tvkit apps share the launcher's window; external clients bring their own
+        if shared:
+            if not self.held.alive():
+                self.drop_held()
+                shared = None
+        else:
+            self.drop_held()
+        env = {**os.environ, **({"TVL_MPV_SOCK": self.held.sock_path} if shared else {}), "TVL_APP_ID": entry["id"], "PYTHONPATH": os.pathsep.join(p for p in (ROOT, os.environ.get("PYTHONPATH")) if p)}
         err_path = os.path.join(self.cfg["cache_dir"], entry["id"] + ".err")
         try:
             os.makedirs(self.cfg["cache_dir"], exist_ok=True)
@@ -592,6 +599,7 @@ class Launcher(Shell):
         try:
             return self._run(only, note, first)
         finally:
+            self.drop_held()
             if quiet:
                 console.restore()
             self.control.stop()

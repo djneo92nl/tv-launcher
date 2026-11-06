@@ -134,7 +134,7 @@ class CloseTests(unittest.TestCase):
         e = {"id": "a", "name": "A", "kind": "app", "cmd": ["x"]}
         L = launcher.Launcher({"prof": {}, "cache_dir": "/tmp", "profile": "mac"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
         L.open_screen = lambda: None
-        L.close_screen = lambda: None
+        L.close_screen = lambda keep=False: None
         L.mpv = support.FakeMpv()
         L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 0})))
         self.assertIsNone(L.menu_loop())
@@ -193,7 +193,7 @@ class FailureTests(unittest.TestCase):
         L = launcher.Launcher({"prof": {}, "cache_dir": tempfile.mkdtemp(), "profile": "pi"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
         L.mpv = support.FakeMpv()
         L.open_screen = lambda: None
-        L.close_screen = lambda: None
+        L.close_screen = lambda keep=False: None
         L.revive = lambda: False                                      # starting a new mpv keeps failing
         L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 11})))
         self.assertEqual(L._run(None, "", True), 1)
@@ -204,7 +204,7 @@ class FailureTests(unittest.TestCase):
         L = launcher.Launcher({"prof": {}, "cache_dir": tempfile.mkdtemp(), "profile": "pi"}, json.loads(json.dumps(launcher.DEFAULT_CONFIG)), "/tmp/ls.json", [e])
         L.mpv = support.FakeMpv()
         L.open_screen = lambda: None
-        L.close_screen = lambda: None
+        L.close_screen = lambda keep=False: None
         L.q.put(("mpv", (L.mpv, {"event": "mpv-exited", "code": 0})))
         self.assertEqual(L._run(None, "", True), 0)
 

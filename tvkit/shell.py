@@ -225,6 +225,7 @@ class Shell:
         return not self.stopping
 
     def run(self):
+        survive_hangup()
         signal.signal(signal.SIGTERM, lambda *_: self.quit())
         signal.signal(signal.SIGINT, lambda *_: self.quit())
         self.open_screen()
@@ -241,6 +242,13 @@ class Shell:
             self.control.stop()
             self.close_screen()
         return self.exit_code
+
+
+def survive_hangup():
+    """Under systemd, ignore SIGHUP: a console hangup (a getty taking tty1 back, a VT switch) must not kill a TV box, and systemd would count that death as a clean exit.
+    Run by hand (no INVOCATION_ID) the default stays, so closing an SSH session still ends the program."""
+    if os.environ.get("INVOCATION_ID"):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
 
 def setup_logging(cache_dir, name):

@@ -22,7 +22,7 @@ import time
 
 from tvkit import appcli, apps as appsmod, config, control, manifest, settings, ui
 from tvkit import web as webmod
-from tvkit.shell import Shell, setup_logging
+from tvkit.shell import Shell, setup_logging, survive_hangup
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 log = logging.getLogger("launcher")
@@ -579,6 +579,7 @@ class Launcher(Shell):
         self.q.put(("cmd", "back"))              # wakes the menu loop
 
     def run(self, only=None):
+        survive_hangup()
         signal.signal(signal.SIGTERM, lambda *_: self.quit())
         signal.signal(signal.SIGINT, lambda *_: self.quit())
         note, first = "", True

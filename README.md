@@ -47,7 +47,8 @@ Re-run the build or the installer after changing code: the packaged copy is a co
 ## On a Pi
 
 ```bash
-sudo sh pi/setup.sh --spelunkr ../"TV Tuner" --iptv ../"TV Tuner IPTV" --enable
+sh tools/deploy-pi.sh pi@ADDRESS            # from your Mac: copies everything, installs it, not yet enabled at boot
+sh tools/deploy-pi.sh pi@ADDRESS --enable   # once it has worked by hand
 ```
 
 Installs to `/opt/tv-launcher` (and the two TV clients, if given, into their own folders), lets the menu restart and shut down the Pi, and boots into the menu.

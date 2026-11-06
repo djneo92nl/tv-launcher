@@ -167,6 +167,11 @@ class ShellIntegrationTests(unittest.TestCase):
         s = A({"cache_dir": tempfile.mkdtemp(), "prof": {"mpv": ["mpv"]}, "profile": "test", "evdev": False})
         s.open_screen = lambda: setattr(s, "mpv", support.FakeMpv())
         s.close_screen = lambda: None
+        import signal
+        import unittest.mock as mock
+        patch = mock.patch.object(signal, "signal", lambda *a: None)      # run() installs signal handlers, which is not allowed off the main thread
+        patch.start()
+        self.addCleanup(patch.stop)
         t = threading.Thread(target=s.run, daemon=True)
         t.start()
         for _ in range(50):
@@ -279,9 +284,12 @@ class LauncherRemoteTests(unittest.TestCase):
             return real(entry)
         L.run_app = run_app
         L.menu_loop = lambda note="", first=False: L.entries[0]                # the first thing to run is "one"
-        t = threading.Thread(target=L.run, daemon=True)
         import signal
-        signal.signal = lambda *a: None                           # run() installs handlers; not allowed off the main thread
+        import unittest.mock as mock
+        patch = mock.patch.object(signal, "signal", lambda *a: None)      # run() installs handlers, which is not allowed off the main thread
+        patch.start()
+        self.addCleanup(patch.stop)
+        t = threading.Thread(target=L.run, daemon=True)
         t.start()
         for _ in range(100):
             if L.child:

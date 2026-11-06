@@ -1,8 +1,10 @@
 [Unit]
 Description=TV Launcher (home menu and apps)
-After=network-online.target
+After=network-online.target systemd-user-sessions.service getty@tty1.service
 Wants=network-online.target
-Conflicts=spelunkr-tv.service
+# The login prompt and this service both want tty1. Stop the prompt first (Conflicts + After); if the launcher finally gives up, bring the prompt back.
+Conflicts=spelunkr-tv.service getty@tty1.service
+OnFailure=getty@tty1.service
 # a launcher that fails 5 times within 2 minutes is not coming back by itself: stop (see: journalctl -u tv-launcher), do not loop for ever
 StartLimitIntervalSec=120
 StartLimitBurst=5
@@ -14,11 +16,11 @@ SupplementaryGroups=video audio input render tty
 WorkingDirectory=/opt/tv-launcher
 # --profile auto: hdmi when an HDMI display is connected, else pi (composite)
 ExecStart=/usr/bin/python3 /opt/tv-launcher/launcher.py --profile auto
-# Run on the console so a USB keyboard controls it
+# Run on the console so a USB keyboard controls it. No TTYVHangup: hanging up tty1 sends SIGHUP to whoever uses it, and systemd counts a process
+# that dies of SIGHUP as a clean exit, which looked like "Deactivated successfully" for ever.
 StandardInput=tty-force
 TTYPath=/dev/tty1
 TTYReset=yes
-TTYVHangup=yes
 Restart=always
 RestartSec=5
 # the apps it starts are children: stopping the service must stop them too

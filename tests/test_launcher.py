@@ -141,6 +141,52 @@ class CloseTests(unittest.TestCase):
         self.assertTrue(L.stopping)                                  # run() then stops instead of drawing the menu again
 
 
+class ServiceFileTests(unittest.TestCase):
+    """The systemd unit is easy to get subtly wrong, and a wrong one fails silently on a TV box: check what has gone wrong before."""
+
+    def setUp(self):
+        with open(os.path.join(support.ROOT, "pi", "tv-launcher.service")) as f:
+            self.lines = f.read().splitlines()
+        self.settings = [ln for ln in self.lines if "=" in ln and not ln.startswith(("#", "["))]
+
+    def values(self, key):
+        return [ln.split("=", 1)[1] for ln in self.settings if ln.split("=", 1)[0] == key]
+
+    def test_no_inline_comments_systemd_would_pass_them_on_as_arguments(self):
+        for ln in self.settings:
+            self.assertNotIn(" #", ln, ln)
+
+    def test_the_login_prompt_is_stopped_before_and_restored_after_giving_up(self):
+        self.assertIn("getty@tty1.service", " ".join(self.values("Conflicts")))
+        self.assertIn("getty@tty1.service", " ".join(self.values("After")))
+        self.assertEqual(self.values("OnFailure"), ["getty@tty1.service"])
+
+    def test_it_neither_hangs_up_the_console_nor_loops_for_ever(self):
+        self.assertEqual(self.values("TTYVHangup"), [])
+        self.assertEqual((self.values("StartLimitBurst"), self.values("StartLimitIntervalSec")), (["5"], ["120"]))
+        self.assertEqual(self.values("Restart"), ["always"])
+
+    def test_it_picks_the_display_profile_itself(self):
+        self.assertTrue(self.values("ExecStart")[0].endswith("launcher.py --profile auto"))
+
+
+class HangupTests(unittest.TestCase):
+    def test_a_service_ignores_hangups_but_a_hand_run_keeps_the_default(self):
+        import signal
+        import unittest.mock as mock
+        from tvkit.shell import survive_hangup
+        before = signal.getsignal(signal.SIGHUP)
+        try:
+            with mock.patch.dict(os.environ, {}, clear=True):
+                survive_hangup()
+                self.assertEqual(signal.getsignal(signal.SIGHUP), before)
+            with mock.patch.dict(os.environ, {"INVOCATION_ID": "abc"}):
+                survive_hangup()
+                self.assertEqual(signal.getsignal(signal.SIGHUP), signal.SIG_IGN)
+        finally:
+            signal.signal(signal.SIGHUP, before)
+
+
 class FailureTests(unittest.TestCase):
     def test_a_launcher_whose_mpv_keeps_dying_exits_with_an_error_not_zero(self):
         e = {"id": "a", "name": "A", "kind": "app", "cmd": ["x"]}

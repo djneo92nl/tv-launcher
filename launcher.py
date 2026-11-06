@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-from tvkit import appcli, apps as appsmod, config, control, manifest, settings, ui
+from tvkit import appcli, apps as appsmod, config, console, control, manifest, settings, ui
 from tvkit import web as webmod
 from tvkit.shell import Shell, setup_logging, survive_hangup
 
@@ -588,9 +588,12 @@ class Launcher(Shell):
             self.control.start()
         except OSError:
             log.exception("could not open the launcher's control socket")
+        quiet = console.quiet()                              # on a Pi's own console: no text between one app and the next
         try:
             return self._run(only, note, first)
         finally:
+            if quiet:
+                console.restore()
             self.control.stop()
             if self.web:
                 self.web.stop()

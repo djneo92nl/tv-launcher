@@ -1,6 +1,7 @@
 import json
 import os
 import struct
+import sys
 import tempfile
 import time
 import unittest
@@ -96,6 +97,53 @@ class ImageTests(unittest.TestCase):
                 images.parse_bmp(bad)
         with self.assertRaises(images.ImageError):
             images.parse_bmp(images.make_bmp(4, 4, lambda x, y: (0, 0, 0))[:-5])
+
+
+class ConsoleTests(unittest.TestCase):
+    def test_it_only_acts_on_a_real_virtual_console(self):
+        import unittest.mock as mock
+        from tvkit import console
+        with mock.patch.object(console.sys, "platform", "linux"):
+            for name, expected in (("/dev/tty1", True), ("/dev/tty12", True), ("/dev/pts/3", False), ("/dev/ttyUSB0", False), ("/dev/console", False)):
+                with mock.patch.object(console.os, "ttyname", lambda fd, n=name: n):
+                    self.assertEqual(console.on_virtual_console(), expected, name)
+            with mock.patch.object(console.os, "ttyname", side_effect=OSError):
+                self.assertFalse(console.on_virtual_console())                       # not a terminal at all (a service without one, a pipe)
+        with mock.patch.object(console.sys, "platform", "darwin"):
+            self.assertFalse(console.on_virtual_console())
+
+    def test_graphics_mode_is_switched_with_the_kernel_ioctl_and_failures_are_ignored(self):
+        import unittest.mock as mock
+        from tvkit import console
+        calls = []
+        fake_fcntl = mock.Mock(ioctl=lambda fd, req, arg: calls.append((fd, req, arg)))
+        with mock.patch.object(console.sys, "platform", "linux"), mock.patch.object(console.os, "ttyname", lambda fd: "/dev/tty1"), \
+                mock.patch.dict(sys.modules, {"fcntl": fake_fcntl}):
+            self.assertTrue(console.set_graphics(True))
+            self.assertTrue(console.restore())
+        self.assertEqual(calls, [(0, 0x4B3A, 1), (0, 0x4B3A, 0)])
+        broken = mock.Mock(ioctl=mock.Mock(side_effect=OSError))
+        with mock.patch.object(console.sys, "platform", "linux"), mock.patch.object(console.os, "ttyname", lambda fd: "/dev/tty1"), \
+                mock.patch.dict(sys.modules, {"fcntl": broken}):
+            self.assertFalse(console.set_graphics(True))                              # no permission: carry on without it
+        with mock.patch.object(console.sys, "platform", "linux"), mock.patch.object(console.os, "ttyname", lambda fd: "/dev/pts/0"):
+            self.assertFalse(console.quiet())                                         # an SSH session is left completely alone
+
+    def test_the_framebuffer_is_filled_with_exactly_its_size_in_black(self):
+        from tvkit import console
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "virtual_size"), "w").write("64,32\n")
+            open(os.path.join(d, "bits_per_pixel"), "w").write("32\n")
+            fb = os.path.join(d, "fb0")
+            open(fb, "wb").write(b"\xff" * 100_000)                                    # pretend there is text on it
+            self.assertTrue(console.blank_framebuffer(fb, d))
+            data = open(fb, "rb").read()
+            self.assertEqual(len(data), 100_000)                                      # the file is not grown or cut: the first 64*32*4 bytes are zeroed
+            self.assertEqual(data[:64 * 32 * 4], bytes(64 * 32 * 4))
+            self.assertEqual(data[64 * 32 * 4:], b"\xff" * (100_000 - 64 * 32 * 4))
+            self.assertFalse(console.blank_framebuffer(os.path.join(d, "nope"), os.path.join(d, "nosuchdir")))
+            open(os.path.join(d, "virtual_size"), "w").write("garbage")
+            self.assertFalse(console.blank_framebuffer(fb, d))
 
 
 class PngTests(unittest.TestCase):
